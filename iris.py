@@ -184,7 +184,7 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
                     if isinstance(nested, dict):
                         # Merge common {ok/success, data: {...}} envelopes even
                         # when the envelope already contains an "ok" field.
-                        data = {**nested, **{k: v for k, v in data.items() if k != "data"}}
+                        data = {**{k: v for k, v in data.items() if k != "data"}, **nested}
                     elif isinstance(nested, list):
                         list_key = "cities" if normalized_path == "/cities" else (
                             "mods" if normalized_path == "/mods" else (
