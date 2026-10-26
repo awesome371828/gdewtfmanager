@@ -1012,6 +1012,7 @@ async def gdewtf_command(message: Message) -> None:
             # A write can commit on GDE.WTF while its HTTP response times out.
             # Verify state before telling the operator the action failed.
             if not data.get("ok") and data.get("error") == "api_unavailable" and data.get("detail") == "timeout":
+                _gdewtf_invalidate_api_cache()
                 verify = await _api("GET", "/mod", params={"q": remove_q})
                 if not verify.get("ok") and str(verify.get("error") or "") == "not_found":
                     data = {"ok": True, "pub": remove_q, "mod": {}, "verified_after_timeout": True}
