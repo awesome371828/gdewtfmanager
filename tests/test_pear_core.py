@@ -63,28 +63,34 @@ class VisualAndSchemaTests(unittest.TestCase):
         rendered = pear_core.format_panel("ЗАГОЛОВОК", "Тело", "Футер")
         self.assertIn("🛡️ <b>ЗАГОЛОВОК</b>", rendered)
         self.assertIn("Тело", rendered)
-        self.assertIn("<i>Футер</i>", rendered) if "<i>Футер</i>" in rendered else self.assertIn("<blockquote>— Футер</blockquote>", rendered)
+        self.assertIn("<blockquote>— Футер</blockquote>", rendered)
 
     def test_schema_check_reports_missing_table_and_columns(self):
         class FakeQuery:
             def __init__(self, table, columns):
                 self.table, self.columns = table, columns
+
             def limit(self, _count):
                 return self
+
             def execute(self):
                 if self.table == "bot_users" and "last_seen" not in self.columns:
                     raise RuntimeError("column missing")
                 if self.table == "bot_activity_daily":
                     raise RuntimeError("table missing")
                 return True
+
         class FakeClient:
             def table(self, table):
                 class Select:
                     def __init__(self, name):
                         self.name = name
+
                     def select(self, columns):
                         return FakeQuery(self.name, columns)
+
                 return Select(table)
+
         problems = pear_core.check_schema(FakeClient())
         self.assertTrue(any("bot_activity_daily" in problem for problem in problems))
 
