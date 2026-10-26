@@ -950,9 +950,14 @@ async def gdewtf_command(message: Message) -> None:
             # falsely reporting failure and avoids blindly repeating a non-idempotent POST.
             before_data = await _api("GET", "/mod", params={"q": q})
             before_mod = before_data.get("mod") if before_data.get("ok") and isinstance(before_data.get("mod"), dict) else {}
+            before_count_known = bool(
+                before_data.get("ok")
+                and ("warns_count" in before_mod or isinstance(before_mod.get("warns"), list))
+            )
             try:
                 before_count = int(before_mod.get("warns_count") or len(before_mod.get("warns") or []))
             except (TypeError, ValueError):
+                before_count_known = False
                 before_count = 0
             # Reason is optional in the command. The external API requires a
             # non-empty reason, so use a default only in the API payload.
@@ -962,14 +967,24 @@ async def gdewtf_command(message: Message) -> None:
                 _gdewtf_invalidate_api_cache()
                 verify = await _api("GET", "/mod", params={"q": q})
                 verify_mod = verify.get("mod") if verify.get("ok") and isinstance(verify.get("mod"), dict) else {}
+                after_count_known = bool(
+                    verify.get("ok")
+                    and isinstance(verify_mod, dict)
+                    and ("warns_count" in verify_mod or isinstance(verify_mod.get("warns"), list))
+                )
                 try:
                     after_count = int(verify_mod.get("warns_count") or len(verify_mod.get("warns") or []))
                 except (TypeError, ValueError):
-                    after_count = before_count
-                if verify.get("ok") and after_count > before_count:
+                    after_count_known = False
+                    after_count = 0
+                if before_count_known and after_count_known and after_count > before_count:
                     data = {"ok": True, "pub": verify_mod.get("pub") or q, "mod": verify_mod, "warns_count": after_count, "verified_after_timeout": True}
                 else:
-                    log_gdewtf.warning("GDE.WTF /warn timed out; warning not confirmed for q=%r (before=%s after=%s)", q, before_count, after_count)
+                    log_gdewtf.warning(
+                        "GDE.WTF /warn timed out; warning not confirmed for q=%r "
+                        "(before=%s known=%s after=%s known=%s)",
+                        q, before_count, before_count_known, after_count, after_count_known,
+                    )
         elif action in {"снятьварн", "снять-варн", "анварн", "unwarn"}:
             if not rest:
                 await _gdewtf_safe_answer(message, "Формат: <code>!снятьварн @username [номер]</code> или ответь на сообщение командой <code>!снятьварн [номер]</code>. Без номера снимается первый варн.")
