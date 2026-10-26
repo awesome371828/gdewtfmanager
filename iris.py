@@ -137,7 +137,8 @@ def _gdewtf_invalidate_api_cache() -> None:
 
 
 async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
-               body: dict[str, Any] | None = None) -> dict[str, Any]:
+               body: dict[str, Any] | None = None,
+               request_timeout: aiohttp.ClientTimeout | None = None) -> dict[str, Any]:
     if not API_KEY:
         return {"ok": False, "error": "api_key_not_configured"}
     headers = {
@@ -166,6 +167,7 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
             method, f"{API_BASE}/{path.lstrip('/')}",
             params=params if method == "GET" else None,
             json=body if method != "GET" else None,
+            timeout=request_timeout or _TIMEOUT,
         ) as response:
                 # Be tolerant of API gateways that return a list, a nested
                 # {data: ...} envelope, plain text, or a successful empty body.
