@@ -420,28 +420,91 @@ def _gdewtf_perms(profile: dict[str, Any]) -> set[str]:
         values = []
     return {v for v in values if v}
 
+def _gdewtf_identity_normalize(value: Any) -> str:
+    raw = str(value or "").strip().casefold()
+    if raw.startswith("https://t.me/"):
+        raw = raw.rsplit("/", 1)[-1]
+    raw = raw.lstrip("@")
+    return raw
+
+
 def _gdewtf_profile_identity_values(profile: dict[str, Any]) -> set[str]:
-    """Identity aliases accepted by the GDE.WTF API, including RND public codes."""
+    """Collect Telegram IDs, usernames, and RND codes from API profile variants."""
     keys = {
         "id", "tg_id", "telegram_id", "user_id", "telegram_user_id",
         "username", "telegram_username", "login", "pub", "public_code",
-        "rnd", "rnd_code", "code",
+        "rnd", "rnd_code", "code", "nick", "name", "display_name",
     }
     values: set[str] = set()
     def walk(obj: Any, depth: int = 0) -> None:
-        if depth > 3 or not isinstance(obj, dict):
+        if depth > 4 or not isinstance(obj, dict):
             return
         for key, value in obj.items():
             normalized = str(key).strip().casefold()
             if normalized in keys and value is not None and not isinstance(value, (dict, list)):
-                raw = str(value).strip().casefold()
+                raw = _gdewtf_identity_normalize(value)
                 if raw:
                     values.add(raw)
-                    values.add(raw.lstrip("@"))
             elif isinstance(value, dict):
                 walk(value, depth + 1)
     walk(profile)
     return values
+
+
+async def _gdewtf_resolve_mod(query: str) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """Resolve a target consistently by @username, Telegram ID, or RND-XXXX."""
+    q = query.strip()
+    if not q:
+        return None, {"ok": False, "error": "not_found"}
+    variants: list[str] = [q]
+    bare = q.lstrip("@")
+    if bare != q:
+        variants.append(bare)
+    elif re.fullmatch(r"[A-Za-z0-9_]{5,32}", q) and not q.upper().startswith("RND-"):
+        variants.append("@" + q)
+    # Prefer the API's exact lookup, trying common representations first.
+    seen: set[str] = set()
+    last: dict[str, Any] = {"ok": False, "error": "not_found"}
+    for variant in variants:
+        key = variant.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        last = await _api("GET", "/mod", params={"q": variant})
+        candidate = last.get("mod") if isinstance(last.get("mod"), dict) else None
+        if last.get("ok") and candidate:
+            return candidate, last
+
+    # API versions may support only one identifier type on /mod. Search the
+    # complete directory and compare all known identity fields locally.
+    directory = await _api("GET", "/mods")
+    if directory.get("ok"):
+        entries: list[Any] = []
+        for key in ("mods", "moderators", "items", "results", "data"):
+            value = directory.get(key)
+            if isinstance(value, list):
+                entries.extend(value)
+            elif isinstance(value, dict):
+                for nested_key in ("mods", "moderators", "items", "results"):
+                    if isinstance(value.get(nested_key), list):
+                        entries.extend(value[nested_key])
+        wanted = _gdewtf_identity_normalize(q)
+        for candidate in entries:
+            if isinstance(candidate, dict) and wanted in _gdewtf_profile_identity_values(candidate):
+                # Directory records may be abbreviated; fetch full profile by
+                # canonical RND code, Telegram ID, and username where available.
+                canonical = candidate.get("pub") or candidate.get("public_code") or candidate.get("rnd_code") or candidate.get("code")
+                tg_id = candidate.get("tg_id") or candidate.get("telegram_id") or candidate.get("user_id")
+                username = candidate.get("username") or candidate.get("telegram_username")
+                for identity in (canonical, tg_id, ("@" + str(username).lstrip("@")) if username else None):
+                    if identity is None or not str(identity).strip():
+                        continue
+                    detail = await _api("GET", "/mod", params={"q": str(identity)})
+                    full = detail.get("mod") if detail.get("ok") and isinstance(detail.get("mod"), dict) else None
+                    if full:
+                        return full, detail
+                return candidate, {"ok": True, "mod": candidate}
+    return None, last
 
 
 def _gdewtf_profile_matches_telegram(profile: dict[str, Any], user_id: int, username: str | None) -> bool:
@@ -610,6 +673,31 @@ async def gdewtf_command(message: Message) -> None:
         if not explicit_target:
             rest = [reply_id] + rest
 
+    # Normalize target commands through one resolver so @username, Telegram
+    # numeric ID, and RND-XXXX work the same way across reads and mutations.
+    target_actions_for_resolution = {
+        "профиль", "who", "mod", "варны", "кто", "статус", "права",
+        "варн", "warn", "снять", "modremove", "снятьварн", "снять-варн", "анварн", "unwarn",
+        "снятьварны", "снять-варны", "warnclear", "ник", "nick", "город", "city",
+        "амб", "amb", "rgov", "регион", "региональный", "назначить", "modset",
+        "бан", "ban", "разбан", "unban", "анбан", "журнал", "лог", "log",
+    }
+    if action in target_actions_for_resolution and rest:
+        is_warn_index = action in {"снятьварн", "снять-варн", "анварн", "unwarn"} and rest[0].isdigit() and len(rest[0]) < 7
+        raw_target = rest[0]
+        if not is_warn_index:
+            resolved, resolved_data = await _gdewtf_resolve_mod(raw_target)
+            if resolved:
+                canonical = (
+                    resolved.get("pub") or resolved.get("public_code") or resolved.get("rnd_code")
+                    or resolved.get("code") or resolved.get("tg_id") or resolved.get("telegram_id")
+                    or resolved.get("user_id") or resolved.get("username") or raw_target
+                )
+                rest[0] = str(canonical)
+            elif action in {"профиль", "who", "mod", "варны", "кто", "статус", "права"}:
+                await message.answer("⚠️ " + _error_text(resolved_data))
+                return
+
     data: dict[str, Any]
     try:
         if action in {"люди", "people", "users", "участники"}:
@@ -648,9 +736,9 @@ async def gdewtf_command(message: Message) -> None:
             if not rest:
                 await message.answer("Укажи модератора: <code>!варны @username</code>")
                 return
-            data = await _api("GET", "/mod", params={"q": rest[0]})
-            if data.get("ok") and isinstance(data.get("mod"), dict):
-                mod = data["mod"]
+            mod, data = await _gdewtf_resolve_mod(rest[0])
+            if data.get("ok") and isinstance(mod, dict):
+
                 if action == "варны":
                     warns = mod.get("warns") or []
                     rows = []
