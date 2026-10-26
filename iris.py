@@ -394,14 +394,14 @@ async def _gdewtf_authorize(user_id: int, action: str) -> tuple[bool, str]:
     }
     action_aliases = {
         "warn": "marks", "варн": "marks", "варны": "marks",
-        "снятьварны": "marks", "снять-варны": "marks", "снятьварн": "marks", "снять-варн": "marks", "warnclear": "marks",
+        "снятьварны": "marks", "снять-варны": "marks", "снятьварн": "marks", "снять-варн": "marks", "warnclear": "marks", "анварн": "marks", "unwarn": "marks",
         "кто": "users", "статус": "users", "права": "users", "поиск": "users",
         "топ": "stats",
         "ник": "users", "nick": "users", "город": "users", "city": "users",
         "амб": "users", "amb": "users", "rgov": "users", "регион": "users",
         "региональный": "users", "назначить": "users", "modset": "users",
         "снять": "users", "modremove": "users", "бан": "users", "ban": "users",
-        "разбан": "users", "unban": "users",
+        "разбан": "users", "unban": "users", "анбан": "users",
     }
     if action in read_actions:
         if perms.intersection(_GDEWTF_KNOWN_PERMS):
@@ -676,31 +676,46 @@ async def gdewtf_command(message: Message) -> None:
                 return
             q, reason = rest[0], " ".join(rest[1:])
             data = await _api("POST", "/warn", body={"q": q, "reason": reason, "by": f"GDE.WTF / {message.from_user.id}"})
-        elif action in {"снятьварн", "снять-варн"}:
-            if len(rest) < 2:
-                await message.answer("Формат: <code>!снятьварн @username номер</code> или ответь на сообщение командой <code>!снятьварн номер</code>. Номер варна начинается с 1.")
-                return
-            try:
-                visible_index = int(rest[1])
-            except ValueError:
-                await message.answer("Номер варна должен быть целым числом от 1.")
-                return
-            if visible_index < 1:
-                await message.answer("Номер варна начинается с 1. Посмотри список командой <code>!варны @username</code>.")
-                return
-            data = await _api("POST", "/warn/clear", body={"q": rest[0], "index": visible_index - 1})
-        elif action in {"снятьварны", "снять-варны", "warnclear"}:
+        elif action in {"снятьварн", "снять-варн", "анварн", "unwarn"}:
             if not rest:
-                await message.answer("Формат: <code>!снятьварны @username [index]</code>")
+                await message.answer("Формат: <code>!снятьварн @username [номер]</code> или ответь на сообщение командой <code>!снятьварн [номер]</code>. Без номера снимается первый варн.")
                 return
-            body = {"q": rest[0]}
+            q = rest[0]
+            profile_data = await _api("GET", "/mod", params={"q": q})
+            profile = profile_data.get("mod") if profile_data.get("ok") and isinstance(profile_data.get("mod"), dict) else None
+            if profile is None:
+                await message.answer("⚠️ " + _error_text(profile_data))
+                return
+            warns = profile.get("warns") or []
+            if not isinstance(warns, list) or not warns:
+                await message.answer(f"ℹ️ У <code>{_clean(profile.get('pub') or q)}</code> нет предупреждений — снимать нечего.")
+                return
+            visible_index = 1
             if len(rest) > 1:
                 try:
-                    body["index"] = int(rest[1])
+                    visible_index = int(rest[1])
                 except ValueError:
-                    await message.answer("index должен быть целым числом от 0.")
+                    await message.answer("Номер варна должен быть целым числом от 1.")
                     return
-            data = await _api("POST", "/warn/clear", body=body)
+            if visible_index < 1 or visible_index > len(warns):
+                await message.answer(f"Номер должен быть от 1 до {len(warns)}. Укажи <code>!варны {escape(str(q))}</code>.")
+                return
+            data = await _api("POST", "/warn/clear", body={"q": q, "index": visible_index - 1})
+        elif action in {"снятьварны", "снять-варны", "warnclear"}:
+            if not rest:
+                await message.answer("Формат: <code>!снятьварны @username</code> — снять все предупреждения.")
+                return
+            q = rest[0]
+            profile_data = await _api("GET", "/mod", params={"q": q})
+            profile = profile_data.get("mod") if profile_data.get("ok") and isinstance(profile_data.get("mod"), dict) else None
+            if profile is None:
+                await message.answer("⚠️ " + _error_text(profile_data))
+                return
+            warns = profile.get("warns") or []
+            if not warns and not int(profile.get("warns_count") or 0):
+                await message.answer(f"ℹ️ У <code>{_clean(profile.get('pub') or q)}</code> нет предупреждений — снимать нечего.")
+                return
+            data = await _api("POST", "/warn/clear", body={"q": q})
         elif action in {"ник", "nick"}:
             if len(rest) < 2:
                 await message.answer("Формат: <code>!ник @username новый_ник</code> или <code>!ник @username -</code>")
@@ -749,7 +764,7 @@ async def gdewtf_command(message: Message) -> None:
             if len(rest) > 1:
                 body["reason"] = " ".join(rest[1:])
             data = await _api("POST", "/ban", body=body)
-        elif action in {"разбан", "unban"}:
+        elif action in {"разбан", "unban", "анбан"}:
             if not rest:
                 await message.answer("Формат: <code>!разбан @username</code>")
                 return
@@ -762,17 +777,24 @@ async def gdewtf_command(message: Message) -> None:
             mod = data.get("mod") if isinstance(data.get("mod"), dict) else {}
             pub = data.get("pub") or mod.get("pub") or "—"
             if action in {"варн", "warn"}:
-                result = f"✅ Предупреждение выдано · <code>{_clean(pub)}</code> · всего: <b>{_clean(data.get('warns_count', 0))}</b>"
-            elif action in {"снятьварн", "снять-варн"}:
+                reason = " ".join(rest[1:]).strip()
+                result = f"✅ Предупреждение выдано · <code>{_clean(pub)}</code> · причина: <b>{_clean(reason)}</b> · всего: <b>{_clean(data.get('warns_count', 0))}</b>"
+            elif action in {"снятьварн", "снять-варн", "анварн", "unwarn"}:
                 result = f"✅ Варн №{visible_index} снят · <code>{_clean(pub)}</code> · осталось: <b>{_clean(data.get('warns_count', mod.get('warns_count', 0)))}</b>"
             elif action in {"снятьварны", "снять-варны", "warnclear"}:
-                result = f"✅ Предупреждения обновлены · <code>{_clean(pub)}</code> · осталось: <b>{_clean(data.get('warns_count', 0))}</b>"
+                result = f"✅ Все предупреждения сняты · <code>{_clean(pub)}</code> · осталось: <b>{_clean(data.get('warns_count', 0))}</b>"
             elif action in {"ник", "nick"}:
                 result = f"✅ Ник обновлён: <b>{_clean(data.get('nick'))}</b> · <code>{_clean(pub)}</code>"
             elif action in {"город", "city", "амб", "amb", "rgov", "регион", "региональный", "назначить", "modset"}:
                 result = "✅ Изменения сохранены.\n" + (_profile(mod) if mod else f"Модератор: <code>{_clean(pub)}</code>")
             elif action in {"снять", "modremove"}:
                 result = f"✅ Модератор снят с должности · <code>{_clean(pub)}</code>"
+            elif action in {"бан", "ban"}:
+                result = f"🚫 Аккаунт заблокирован · <code>{_clean(pub)}</code>"
+                if len(rest) > 1:
+                    result += f" · причина: <b>{_clean(' '.join(rest[1:]))}</b>"
+            elif action in {"разбан", "unban", "анбан"}:
+                result = f"♻️ Бан снят · <code>{_clean(pub)}</code>"
             else:
                 result = f"✅ Статус бана обновлён · <code>{_clean(pub)}</code> · banned: <b>{_clean(data.get('banned'))}</b>"
             await message.answer(result)
