@@ -1,91 +1,74 @@
-# Permanent bot hosting (VPS + Docker)
+# Permanent GDE.WTF Manager hosting (VPS + Docker)
 
-GitHub Actions runners are temporary and **cannot guarantee 24/7 uptime**. This deployment runs the bot on a persistent Linux VPS, starts it again after a reboot, and restarts the container if the bot process exits.
+This repository runs the GDE.WTF Telegram manager from `iris.py` using PostgreSQL. The Docker image compiles the Python modules and runs the regression tests before the image can be built.
 
 ## Requirements
 
-- Ubuntu 22.04/24.04 VPS (1 vCPU and 1 GB RAM is a reasonable starting point for this bot; choose more if the server runs other services).
-- Docker Engine and the Docker Compose plugin.
-- The GitHub repository cloned onto the VPS.
+- Linux VPS with Docker Engine and the Docker Compose plugin.
+- PostgreSQL reachable from the bot host.
+- Telegram bot token and GDE.WTF external API key.
 
-## 1. Install Docker on Ubuntu
-
-Run on the VPS as a user with sudo access:
+## 1. Get this repository
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y docker.io docker-compose-v2 git
-sudo systemctl enable --now docker
+git clone https://github.com/awesome371828/gdewtfmanager.git
+cd gdewtfmanager
 ```
 
-If the package `docker-compose-v2` is unavailable on your image, install Docker Compose plugin using Docker's official Ubuntu instructions.
+## 2. Configure secrets locally
 
-## 2. Get the project
-
-```bash
-git clone https://github.com/awesome371828/botiris.git
-cd botiris
-```
-
-If the repository is already cloned, run `git pull` instead.
-
-## 3. Configure secrets locally on the VPS
-
-Create the environment file:
-
-```bash
-nano .env
-```
-
-Add your real values (do not commit this file):
+Create `.env` in the repository root. Do not commit it:
 
 ```dotenv
-TELEGRAM_BOT_TOKEN=PUT_YOUR_TELEGRAM_BOT_TOKEN_HERE
-SUPABASE_URL=PUT_YOUR_SUPABASE_URL_HERE
-SUPABASE_SERVICE_KEY=PUT_YOUR_SUPABASE_SERVICE_KEY_HERE
+TELEGRAM_BOT_TOKEN=YOUR_TELEGRAM_BOT_TOKEN
+DATABASE_URL=YOUR_POSTGRESQL_CONNECTION_STRING
 BOT_OWNER_ID=6652898792
+GDEWTF_API_KEY=YOUR_GDEWTF_EXTERNAL_API_KEY
+# Optional:
+# GDEWTF_API_BASE=https://map.gde.wtf/api/ext
 ```
 
-Save and lock down the file:
+Restrict access to the file:
 
 ```bash
 chmod 600 .env
 ```
 
-Never paste bot tokens or Supabase service keys into chat or commit them to GitHub.
+## 3. Prepare the database
 
-## 4. Start it and enable boot persistence
+Review and apply `schema.sql` to the PostgreSQL database specified by `DATABASE_URL`. The schema is designed for additive/idempotent updates, but make a backup before applying changes to a database with existing data.
+
+The bot uses PostgreSQL directly through `postgres_adapter.py`; it does not use `SUPABASE_URL` or `SUPABASE_SERVICE_KEY`.
+
+## 4. Build and start
 
 ```bash
 sudo docker compose up -d --build
-sudo docker update --restart unless-stopped pear-cm
-sudo docker logs --tail=100 -f pear-cm
+sudo docker compose logs --tail=150 -f
 ```
 
-Docker's service is enabled at boot, and `restart: unless-stopped` starts the bot after reboots and retries after process exits. To check status:
+The Docker build runs `py_compile` and `python -m unittest discover -s tests -v`. If either check fails, the image build stops instead of deploying code that failed its regression checks.
+
+## 5. Verify and update
+
+Check container status:
 
 ```bash
 sudo docker compose ps
 sudo docker inspect -f '{{.State.Status}} | restarts={{.RestartCount}}' pear-cm
 ```
 
-Update after a repository change:
+After a code update:
 
 ```bash
 git pull
 sudo docker compose up -d --build
 ```
 
-Stop it:
+## Important: exactly one active poller
 
-```bash
-sudo docker compose down
-```
+Only one running instance may use the same Telegram bot token. Stop old deployments and local copies before starting a new one. A Telegram polling conflict (409) is treated as a fatal configuration conflict and exits with code 23; do not run multiple replicas with the same token.
 
-## Important: avoid two copies polling Telegram
+## Limits
 
-The existing GitHub Actions workflow also runs the bot. Telegram polling commonly fails when two copies of the same bot token run at once. **After the VPS copy starts successfully, disable the GitHub Actions bot workflow** at GitHub → repository → Actions → “Run Pear CM” → ⋯ → Disable workflow. Do not disable the CI tests workflow. Also stop any other hosting instances using this token.
-
-## What this does and does not guarantee
-
-This is persistent hosting, not a trick to keep a GitHub runner alive. It recovers from process exits and host reboots, but no provider can guarantee zero downtime: a VPS can have network/provider outages, invalid credentials, API errors, or application bugs. Check logs after the first start and verify that the bot responds in Telegram.
+The container can recover from transient process failures, but this does not make Telegram, PostgreSQL, or the external GDE.WTF API infallible. Check runtime logs and verify real commands after deployment. Never put bot tokens, database passwords, or API keys into source code or commits.
