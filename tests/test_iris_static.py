@@ -244,7 +244,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn("bot.get_chat_administrators(message.chat.id)", body)
         self.assertIn("ChatMemberStatus.CREATOR", body)
         self.assertIn("Создатели чата", body)
-        self.assertIn("Show Pear CM roles plus the real Telegram chat creator", body)
+        self.assertIn("Show GDE.WTF roles plus the real Telegram chat creator", body)
         self.assertNotIn("Администраторы Telegram", body)
         self.assertNotIn('<a href=', body)
         self.assertNotIn("https://t.me/", body)
@@ -514,7 +514,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         auth_start = self.source.index("async def _gdewtf_authorize(")
         auth_end = self.source.index("\n\n@gdewtf_router.message", auth_start)
         auth = self.source[auth_start:auth_end]
-        self.assertIn('await _api("GET", "/mod", params={"q": str(user_id)})', auth)
+        self.assertIn('*(_api("GET", "/mod", params={"q": query}) for query in queries)', auth)
         self.assertIn("_gdewtf_is_owner_or_chief(mod)", auth)
         self.assertNotIn("_GDEWTF_ACCESS_CACHE", auth)
         callback_start = self.source.index('@gdewtf_router.callback_query(F.data.startswith("gdepanel:"))')
