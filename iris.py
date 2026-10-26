@@ -8751,6 +8751,7 @@ async def run_forever() -> None:
     failures = 0
     while True:
         delay = 5.0
+        stop_for_polling_conflict = False
         try:
             await main()
             failures = 0
@@ -8758,14 +8759,18 @@ async def run_forever() -> None:
         except asyncio.CancelledError:
             raise
         except SystemExit as exc:
-            failures += 1
             if exc.code == 23:
-                # Telegram 409 means another instance is polling this token.
-                delay = 30.0
-                log.critical("Polling conflict (Telegram 409); retrying in %.0fs. Ensure only one deployment is active.", delay)
-            else:
-                delay = min(60.0, 2.0 ** min(failures, 5))
-                log.error("Bot exited with SystemExit=%r; restarting in %.0fs", exc.code, delay)
+                # A 409 means another process already owns this token. Retrying
+                # inside the same container creates an endless competing poller.
+                stop_for_polling_conflict = True
+                log.critical(
+                    "Polling conflict (Telegram 409). Exiting with code 23; "
+                    "ensure exactly one deployment is active."
+                )
+                raise
+            failures += 1
+            delay = min(60.0, 2.0 ** min(failures, 5))
+            log.error("Bot exited with SystemExit=%r; restarting in %.0fs", exc.code, delay)
         except Exception:
             failures += 1
             delay = min(60.0, 2.0 ** min(failures, 5))
@@ -8775,17 +8780,17 @@ async def run_forever() -> None:
                 await bot.session.close()
             except Exception:
                 pass
-            # main() closes its session at shutdown; rebuild before the next iteration.
-            # Rebuild with the same bounded HTTP timeout as the initial bot.
-            # Previously a restart silently restored aiogram's 60s default, which
-            # caused /ping and other API-dependent commands to hang for a minute.
-            bot = LowLatencyBot(
-                BOT_TOKEN,
-                session=AiohttpSession(timeout=35, limit=500),
-                default=DefaultBotProperties(
-                    parse_mode=ParseMode.HTML, link_preview_is_disabled=True
-                ),
-            )
+            if not stop_for_polling_conflict:
+                # Rebuild the HTTP session after transient failures. Keep the
+                # same bounded timeout as initial startup so restarts do not
+                # silently restore aiogram's 60-second default.
+                bot = LowLatencyBot(
+                    BOT_TOKEN,
+                    session=AiohttpSession(timeout=35, limit=500),
+                    default=DefaultBotProperties(
+                        parse_mode=ParseMode.HTML, link_preview_is_disabled=True
+                    ),
+                )
         await asyncio.sleep(delay)
 
 
