@@ -405,7 +405,10 @@ def _gdewtf_is_owner_or_chief(profile: dict[str, Any]) -> bool:
             "chief", "chief moderator", "head moderator", "главный модератор",
             "главмод", "главный модератор проекта", "владелец", "владелец проекта",
             "создатель проекта",
-        }:
+        } or any(marker in role for marker in (
+            "главный модератор", "chief moderator", "head moderator",
+            "project owner", "владелец проекта", "создатель проекта",
+        )):
             return True
     return False
 
@@ -414,6 +417,9 @@ async def _gdewtf_authorize(user_id: int, action: str) -> tuple[bool, str]:
     """Authorize exclusively from the live GDE.WTF API; deny on uncertainty."""
     # Do not trust a local permission cache here. Rights can be revoked on
     # moder.gde.wtf and must take effect on the very next command/button click.
+    # Explicitly evict this exact identity lookup because the general API reader
+    # caches /mod briefly for display commands; authorization must always be live.
+    _GDEWTF_API_CACHE.pop(_gdewtf_cache_key("/mod", {"q": str(user_id)}), None)
     response = await _api("GET", "/mod", params={"q": str(user_id)})
     mod = response.get("mod") if isinstance(response.get("mod"), dict) else None
     if not response.get("ok") or not mod:
