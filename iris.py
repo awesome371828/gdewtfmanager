@@ -924,7 +924,10 @@ async def gdewtf_command(message: Message) -> None:
                 await message.answer("Укажи @username/Telegram ID или ответь на сообщение участника командой <code>!варн</code>. Причина необязательна.")
                 return
             q, reason = rest[0], " ".join(rest[1:]).strip()
-            data = await _api("POST", "/warn", body={"q": q, "reason": reason, "by": f"GDE.WTF / {message.from_user.id}"})
+            # GDE.WTF API currently rejects empty reasons. Use a clear default
+            # instead of forcing the operator to type one.
+            api_reason = reason or "Выдал варн"
+            data = await _api("POST", "/warn", body={"q": q, "reason": api_reason, "by": f"GDE.WTF / {message.from_user.id}"})
         elif action in {"снятьварн", "снять-варн", "анварн", "unwarn"}:
             if not rest:
                 await message.answer("Формат: <code>!снятьварн @username [номер]</code> или ответь на сообщение командой <code>!снятьварн [номер]</code>. Без номера снимается первый варн.")
@@ -1004,7 +1007,18 @@ async def gdewtf_command(message: Message) -> None:
             if not rest:
                 await message.answer("Формат: <code>!снять @username</code>")
                 return
-            data = await _api("POST", "/mod/remove", body={"q": rest[0]})
+            remove_q = rest[0]
+            data = await _api("POST", "/mod/remove", body={"q": remove_q})
+            # A write can commit on GDE.WTF while its HTTP response times out.
+            # Verify state before telling the operator the action failed.
+            if not data.get("ok") and data.get("error") == "api_unavailable" and data.get("detail") == "timeout":
+                verify = await _api("GET", "/mod", params={"q": remove_q})
+                if not verify.get("ok") and str(verify.get("error") or "") == "not_found":
+                    data = {"ok": True, "pub": remove_q, "mod": {}, "verified_after_timeout": True}
+                elif verify.get("ok") and isinstance(verify.get("mod"), dict):
+                    # Still present: the removal did not take effect (or the API
+                    # has not propagated it yet), so retain the honest timeout.
+                    log_gdewtf.warning("GDE.WTF /mod/remove timed out and verification still finds q=%r", remove_q)
         elif action in {"бан", "ban"}:
             if not rest:
                 await message.answer("Формат: <code>!бан @username [причина]</code>")
@@ -1027,7 +1041,11 @@ async def gdewtf_command(message: Message) -> None:
             pub = data.get("pub") or mod.get("pub") or "—"
             if action in {"варн", "warn"}:
                 reason = " ".join(rest[1:]).strip()
-                result = f"✅ Предупреждение выдано · <code>{_clean(pub)}</code> · причина: <b>{_clean(reason)}</b> · всего: <b>{_clean(data.get('warns_count', 0))}</b>"
+                if reason:
+                    warn_text = f"Выдал варн по причине: <b>{_clean(reason)}</b>"
+                else:
+                    warn_text = "Выдал варн"
+                result = f"✅ {warn_text} · <code>{_clean(pub)}</code> · всего: <b>{_clean(data.get('warns_count', 0))}</b>"
             elif action in {"снятьварн", "снять-варн", "анварн", "unwarn"}:
                 result = f"✅ Варн №{visible_index} снят · <code>{_clean(pub)}</code> · осталось: <b>{_clean(data.get('warns_count', mod.get('warns_count', 0)))}</b>"
             elif action in {"снятьварны", "снять-варны", "warnclear"}:
