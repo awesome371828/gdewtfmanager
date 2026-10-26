@@ -181,10 +181,18 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
                 if isinstance(parsed, dict):
                     data = parsed
                     nested = data.get("data")
-                    if isinstance(nested, dict) and not any(
-                        key in data for key in ("ok", "error", "service", "mods", "cities", "mod", "log")
-                    ):
+                    if isinstance(nested, dict):
+                        # Merge common {ok/success, data: {...}} envelopes even
+                        # when the envelope already contains an "ok" field.
                         data = {**nested, **{k: v for k, v in data.items() if k != "data"}}
+                    elif isinstance(nested, list):
+                        list_key = "cities" if normalized_path == "/cities" else (
+                            "mods" if normalized_path == "/mods" else (
+                                "log" if normalized_path == "/log" else "items"
+                            )
+                        )
+                        data = {**data, list_key: nested}
+                        data.pop("data", None)
                     if response.status >= 400:
                         data["ok"] = False
                     elif "ok" not in data:
