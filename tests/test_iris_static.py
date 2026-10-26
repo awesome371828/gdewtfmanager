@@ -203,6 +203,9 @@ class PearCMStaticRegressionTests(unittest.TestCase):
     def test_polling_conflicts_stop_the_restart_loop(self):
         self.assertIn("except TelegramConflictError", self.source)
         self.assertIn("raise SystemExit(23)", self.source)
+        self.assertIn("stop_for_polling_conflict = True", self.source)
+        self.assertIn("Exiting with code 23", self.source)
+        self.assertNotIn("Polling conflict (Telegram 409); retrying", self.source)
         entrypoint = (ROOT / "entrypoint.sh").read_text(encoding="utf-8")
         self.assertIn('if [ "$code" -eq 23 ]', entrypoint)
         self.assertIn("Exiting to avoid a restart loop", entrypoint)
