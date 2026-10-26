@@ -8925,7 +8925,7 @@ async def run_forever() -> None:
                 await bot.session.close()
             except Exception:
                 log.exception("Could not close Telegram HTTP session")
-            if not stop_for_polling_conflict:
+            if not stop_for_polling_conflict and not (_SHUTDOWN_EVENT is not None and _SHUTDOWN_EVENT.is_set()):
                 # Rebuild the HTTP session after transient failures. Keep the
                 # same bounded timeout as initial startup so restarts do not
                 # silently restore aiogram's 60-second default.
