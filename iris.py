@@ -590,6 +590,9 @@ async def _gdewtf_authorize(user_id: int, action: str, username: str | None = No
     for query, response in zip(queries, responses):
         if isinstance(response, BaseException):
             api_errors.append(f"{query}:{type(response).__name__}")
+            transport_failure = transport_failure or {
+                "ok": False, "error": "api_unavailable", "detail": "connection",
+            }
             continue
         candidate = response.get("mod") if isinstance(response.get("mod"), dict) else None
         if response.get("ok") and candidate:
