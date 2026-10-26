@@ -471,7 +471,9 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         start = self.source.index("async def _gdewtf_authorize(")
         end = self.source.index("\n\n@gdewtf_router.message", start)
         auth = self.source[start:end]
-        self.assertIn('await _api("GET", "/mod", params={"q": str(user_id)})', auth)
+        self.assertIn('*(_api("GET", "/mod", params={"q": query}) for query in queries)', auth)
+        self.assertIn("transport_failure is not None and mod is None", auth)
+        self.assertIn("request_timeout=aiohttp.ClientTimeout(total=5, connect=2, sock_read=4)", auth)
         self.assertNotIn("_GDEWTF_KNOWN_PERMS", auth)
         self.assertNotIn('role not in {"admin", "chief", "rgov", "amb", "mod"}', auth)
         callback_start = self.source.index('@gdewtf_router.callback_query(F.data.startswith("gdepanel:"))')
