@@ -856,7 +856,7 @@ async def gdewtf_panel_callback(callback: CallbackQuery) -> None:
             await callback.answer("⛔ Нет прав в проекте GDE.WTF", show_alert=True)
             return
         if key == "help":
-            await callback.message.answer(_help(), reply_markup=_gdewtf_panel_keyboard())
+            await callback.message.edit_text(_help(), reply_markup=_gdewtf_panel_keyboard())
         elif key in {"warn", "clearwarn", "ban", "unban", "setmod", "remove"}:
             examples = {
                 "warn": "Ответь на сообщение модератора: <code>!варн причина</code>\nИли: <code>!варн @username причина</code>",
@@ -866,53 +866,53 @@ async def gdewtf_panel_callback(callback: CallbackQuery) -> None:
                 "setmod": "Ответь на сообщение: <code>!назначить [город] [права]</code> или укажи q явно.",
                 "remove": "Ответь на сообщение: <code>!снять</code> или укажи <code>!снять @username</code>.",
             }
-            await callback.message.answer("🛡 <b>Модерация GDE.WTF</b>\n" + examples[key])
+            await callback.message.edit_text("🛡 <b>Модерация GDE.WTF</b>\n" + examples[key])
         elif key == "ping":
             data = await _api("GET", "/ping")
             output = (f"🟢 <b>GDE.WTF API доступен</b>\nМодераторов: {_clean(data.get('mods'))} · городов: {_clean(data.get('cities'))}"
                       if data.get("ok") else "⚠️ " + _error_text(data))
-            await callback.message.answer(output, reply_markup=_gdewtf_panel_keyboard())
+            await callback.message.edit_text(output, reply_markup=_gdewtf_panel_keyboard())
         elif key == "mods":
             data = await _api("GET", "/mods")
             if not data.get("ok"):
-                await callback.message.answer("⚠️ " + _error_text(data), reply_markup=_gdewtf_panel_keyboard())
+                await callback.message.edit_text("⚠️ " + _error_text(data), reply_markup=_gdewtf_panel_keyboard())
             else:
                 mods = [m for m in (data.get("mods") or []) if isinstance(m, dict)]
                 rows = [_mod_line(m) for m in mods[:45]]
-                await callback.message.answer(
+                await callback.message.edit_text(
                     f"👥 <b>Модераторы GDE.WTF · {len(mods)}</b>\n\n" + ("\n".join(rows) or "Список пуст.")[:3600],
                     reply_markup=_gdewtf_panel_keyboard(),
                 )
         elif key == "cities":
             data = await _api("GET", "/cities")
             if not data.get("ok"):
-                await callback.message.answer("⚠️ " + _error_text(data), reply_markup=_gdewtf_panel_keyboard())
+                await callback.message.edit_text("⚠️ " + _error_text(data), reply_markup=_gdewtf_panel_keyboard())
             else:
                 cities = [c for c in (data.get("cities") or []) if isinstance(c, dict)]
                 rows = [f"• <b>{_clean(c.get('name'))}</b> · <code>{_clean(c.get('id'))}</code> · команда: {_clean(c.get('team', 0))}" for c in cities[:70]]
-                await callback.message.answer(
+                await callback.message.edit_text(
                     f"🏙 <b>Города GDE.WTF · {len(cities)}</b>\n\n" + ("\n".join(rows) or "Список пуст.")[:3600],
                     reply_markup=_gdewtf_panel_keyboard(),
                 )
         elif key == "top":
             data = await _api("GET", "/mods")
             if not data.get("ok"):
-                await callback.message.answer("⚠️ " + _error_text(data), reply_markup=_gdewtf_panel_keyboard())
+                await callback.message.edit_text("⚠️ " + _error_text(data), reply_markup=_gdewtf_panel_keyboard())
             else:
                 mods = [m for m in (data.get("mods") or []) if isinstance(m, dict)]
                 mods.sort(key=lambda m: float(m.get("rating") or 0), reverse=True)
                 rows = [f"{i}. {_mod_line(m)} · рейтинг <b>{_clean(m.get('rating', 0))}</b>" for i, m in enumerate(mods[:15], 1)]
-                await callback.message.answer("🏆 <b>Рейтинг GDE.WTF</b>\n\n" + ("\n".join(rows) or "Нет данных.")[:3600], reply_markup=_gdewtf_panel_keyboard())
+                await callback.message.edit_text("🏆 <b>Рейтинг GDE.WTF</b>\n\n" + ("\n".join(rows) or "Нет данных.")[:3600], reply_markup=_gdewtf_panel_keyboard())
         elif key == "logs":
             data = await _api("GET", "/log", params={"limit": 20})
             if not data.get("ok"):
-                await callback.message.answer("⚠️ " + _error_text(data), reply_markup=_gdewtf_panel_keyboard())
+                await callback.message.edit_text("⚠️ " + _error_text(data), reply_markup=_gdewtf_panel_keyboard())
             else:
                 logs = [item for item in (data.get("log") or []) if isinstance(item, dict)]
                 rows = [f"• {_clean(item.get('act'))} · {_clean(item.get('who'))} → {_clean(item.get('target'))}\n  {_clean(item.get('detail') or item.get('reason'))}" for item in logs[:20]]
-                await callback.message.answer("📜 <b>Журнал GDE.WTF</b>\n\n" + ("\n".join(rows) or "Записей нет.")[:3600], reply_markup=_gdewtf_panel_keyboard())
+                await callback.message.edit_text("📜 <b>Журнал GDE.WTF</b>\n\n" + ("\n".join(rows) or "Записей нет.")[:3600], reply_markup=_gdewtf_panel_keyboard())
         else:
-            await callback.message.answer(_help(), reply_markup=_gdewtf_panel_keyboard())
+            await callback.message.edit_text(_help(), reply_markup=_gdewtf_panel_keyboard())
         await callback.answer()
     except Exception:
         log_gdewtf.exception("GDE.WTF panel callback failed: action=%s user_id=%s", key, callback.from_user.id)
