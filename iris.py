@@ -311,31 +311,41 @@ def _profile(mod: dict[str, Any]) -> str:
 
 def _help() -> str:
     return (
-        "🌐 <b>GDE.WTF · управление модераторами</b>\n\n"
-        "<code>!ping</code> — проверить связь\n"
-        "<code>!профиль @username|ID|RND-AB3K</code> — профиль\n"
-        "<code>!варны q</code> — предупреждения модератора\n"
-        "<code>!кто q</code> — краткая карточка модератора\n"
-        "<code>!статус q</code> — онлайн, смена, бан и рейтинг\n"
-        "<code>!права q</code> — проектные права\n"
-        "<code>!модераторы [city_id]</code> — список команды\n"
-        "<code>!топ [city_id]</code> — рейтинг по рейтингу API\n"
-        "<code>!поиск слово</code> — поиск по модераторам и городам\n"
-        "<code>!города</code> — список городов\n"
-        "<code>!журнал [q] [limit]</code> — журнал действий\n"
-        "<code>!варн q причина</code> — выдать предупреждение\n"
-        "<code>!снятьварны q</code> — снять все предупреждения\n"
-        "<code>!ник q новый_ник</code> / <code>!ник q -</code> — назначить/снять ник\n"
-        "<code>!город q city_id</code> — назначить/сменить город; <code>-</code> — убрать\n"
-        "<code>!амб q</code> — назначить амбассадором города\n"
-        "<code>!rgov q регион [city1,city2]</code> — назначить региональным управляющим\n"
-        "<code>!назначить q [город] [права]</code> — назначить/обновить модератора\n"
-        "<code>!снять q</code> — снять с модерации (q: @username, Telegram ID или ответ на сообщение)\n"
-        "<code>!снятьварн [q] [номер]</code> / <code>!анварн [q] [номер]</code> — снять один варн (без номера снимается первый)\n"
-        "<code>!бан [q] [причина]</code> / <code>!разбан [q]</code> / <code>!анбан [q]</code> — бан/разбан\n\n"
-        "В качестве q указывай pub-код, @username или Telegram ID. Доступ определяется ролью и правами твоего аккаунта в проекте GDE.WTF."
+        "🌐 <b>GDE.WTF · панель управления</b>\n\n"
+        "<b>Просмотр</b>\n"
+        "<code>!профиль q</code> · <code>!кто q</code> · <code>!статус q</code> · <code>!права q</code>\n"
+        "<code>!варны q</code> · <code>!журнал [q] [кол-во]</code> · <code>!поиск слово</code>\n"
+        "<code>!модераторы [city_id]</code> · <code>!города</code> · <code>!топ [city_id]</code> · <code>!ping</code>\n\n"
+        "<b>Модерация</b>\n"
+        "<code>!варн q причина</code> · <code>!снятьварн [q] [номер]</code> · <code>!снятьварны q</code>\n"
+        "<code>!бан q [причина]</code> · <code>!разбан q</code> / <code>!анбан q</code> · <code>!снять q</code>\n\n"
+        "<b>Управление командой</b>\n"
+        "<code>!назначить q [город] [права]</code> · <code>!ник q новый_ник</code> / <code>!ник q -</code>\n"
+        "<code>!город q city_id</code> / <code>!город q -</code> · <code>!амб q</code> · <code>!rgov q регион [city1,city2]</code>\n\n"
+        "<b>Ответ на сообщение</b>\n"
+        "Ответь на сообщение модератора командой без q: <code>!профиль</code>, <code>!варны</code>, "
+        "<code>!варн причина</code>, <code>!снять</code>, <code>!бан причина</code>, "
+        "<code>!разбан</code>, <code>!снятьварн [номер]</code>, <code>!снятьварны</code>, "
+        "<code>!ник новый_ник</code>, <code>!город city_id</code>, <code>!амб</code>, <code>!назначить</code>.\n"
+        "Вместо q можно указать @username, Telegram ID или RND-код. Доступ определяется ролью и правами GDE.WTF."
     )
 
+
+def _gdewtf_panel_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👥 Модераторы", callback_data="gdepanel:mods"),
+         InlineKeyboardButton(text="🏙 Города", callback_data="gdepanel:cities")],
+        [InlineKeyboardButton(text="🏆 Рейтинг", callback_data="gdepanel:top"),
+         InlineKeyboardButton(text="📜 Журнал", callback_data="gdepanel:logs")],
+        [InlineKeyboardButton(text="🛰 Проверка API", callback_data="gdepanel:ping"),
+         InlineKeyboardButton(text="📖 Команды", callback_data="gdepanel:help")],
+        [InlineKeyboardButton(text="⚠️ Варн", callback_data="gdepanel:warn"),
+         InlineKeyboardButton(text="🧹 Снять варн", callback_data="gdepanel:clearwarn")],
+        [InlineKeyboardButton(text="🚫 Бан", callback_data="gdepanel:ban"),
+         InlineKeyboardButton(text="🔓 Разбан", callback_data="gdepanel:unban")],
+        [InlineKeyboardButton(text="👑 Назначить", callback_data="gdepanel:setmod"),
+         InlineKeyboardButton(text="❌ Снять с должности", callback_data="gdepanel:remove")],
+    ])
 
 # Short-lived permission cache: avoids an extra GDE.WTF API lookup on every command.
 _GDEWTF_ACCESS_CACHE: dict[int, tuple[float, dict[str, Any]]] = {}
@@ -388,7 +398,7 @@ async def _gdewtf_authorize(user_id: int, action: str) -> tuple[bool, str]:
     # Read-only commands need at least one project permission. Mutations require
     # the relevant permission; the GDE.WTF API remains the final authority.
     read_actions = {
-        "help", "помощь", "команды", "ping", "пинг", "профиль", "who", "mod",
+        "help", "помощь", "команды", "панель", "panel", "меню", "ping", "пинг", "профиль", "who", "mod",
         "варны", "кто", "статус", "права", "топ", "поиск",
         "модераторы", "mods", "города", "cities", "журнал", "лог", "log",
     }
@@ -440,7 +450,11 @@ async def gdewtf_command(message: Message) -> None:
             text = command_body
     parts = text.split(maxsplit=3)
     if len(parts) == 1 or parts[1].lower() in {"help", "помощь", "команды"}:
-        await message.answer(_help())
+        await message.answer(_help(), reply_markup=_gdewtf_panel_keyboard())
+        return
+
+    if parts[1].lower() in {"панель", "panel", "меню"}:
+        await message.answer("🌐 <b>Панель управления GDE.WTF</b>\nВыбери раздел. Для команд над конкретным человеком можно отвечать на его сообщение.", reply_markup=_gdewtf_panel_keyboard())
         return
 
     action = parts[1].lower()
@@ -456,7 +470,7 @@ async def gdewtf_command(message: Message) -> None:
     target_actions = {
         "профиль", "who", "mod", "варны", "кто", "статус", "права",
         "варн", "warn", "снять", "modremove", "снятьварн", "снять-варн", "анварн", "unwarn",
-        "снятьварны", "снять-варны", "warnclear", "ник", "nick", "город", "city",
+        "снятьварны", "снять-варны", "warnclear", "ник", "nick", "город", "city", "журнал", "лог", "log",
         "амб", "amb", "rgov", "регион", "региональный", "назначить", "modset",
         "бан", "ban", "разбан", "unban", "анбан",
     }
@@ -817,6 +831,88 @@ async def gdewtf_command(message: Message) -> None:
             await message.answer("⚠️ Не удалось выполнить команду GDE.WTF. Подробности записаны в лог.")
         except Exception:
             log_gdewtf.exception("Could not send GDE.WTF command error reply")
+
+
+@gdewtf_router.callback_query(F.data.startswith("gdepanel:"))
+async def gdewtf_panel_callback(callback: CallbackQuery) -> None:
+    if not callback.from_user or not callback.message:
+        await callback.answer()
+        return
+    key = (callback.data or "").split(":", 1)[1].casefold()
+    auth_action = {
+        "mods": "модераторы", "cities": "города", "top": "топ",
+        "logs": "журнал", "ping": "ping", "help": "help",
+        "warn": "варн", "clearwarn": "снятьварн", "ban": "бан",
+        "unban": "разбан", "setmod": "назначить", "remove": "снять",
+    }.get(key, "help")
+    try:
+        authorized, denial = await _gdewtf_authorize(callback.from_user.id, auth_action)
+        if not authorized:
+            await callback.answer("Нет доступа", show_alert=True)
+            await callback.message.answer(denial)
+            return
+        if key == "help":
+            await callback.message.answer(_help(), reply_markup=_gdewtf_panel_keyboard())
+        elif key in {"warn", "clearwarn", "ban", "unban", "setmod", "remove"}:
+            examples = {
+                "warn": "Ответь на сообщение модератора: <code>!варн причина</code>\nИли: <code>!варн @username причина</code>",
+                "clearwarn": "Ответь на сообщение: <code>!снятьварн [номер]</code> или <code>!снятьварны</code> для всех варнов.",
+                "ban": "Ответь на сообщение: <code>!бан причина</code>\nИли: <code>!бан @username причина</code>",
+                "unban": "Ответь на сообщение: <code>!разбан</code> или укажи <code>!разбан @username</code>.",
+                "setmod": "Ответь на сообщение: <code>!назначить [город] [права]</code> или укажи q явно.",
+                "remove": "Ответь на сообщение: <code>!снять</code> или укажи <code>!снять @username</code>.",
+            }
+            await callback.message.answer("🛡 <b>Модерация GDE.WTF</b>\n" + examples[key])
+        elif key == "ping":
+            data = await _api("GET", "/ping")
+            output = (f"🟢 <b>GDE.WTF API доступен</b>\nМодераторов: {_clean(data.get('mods'))} · городов: {_clean(data.get('cities'))}"
+                      if data.get("ok") else "⚠️ " + _error_text(data))
+            await callback.message.answer(output, reply_markup=_gdewtf_panel_keyboard())
+        elif key == "mods":
+            data = await _api("GET", "/mods")
+            if not data.get("ok"):
+                await callback.message.answer("⚠️ " + _error_text(data), reply_markup=_gdewtf_panel_keyboard())
+            else:
+                mods = [m for m in (data.get("mods") or []) if isinstance(m, dict)]
+                rows = [_mod_line(m) for m in mods[:45]]
+                await callback.message.answer(
+                    f"👥 <b>Модераторы GDE.WTF · {len(mods)}</b>\n\n" + ("\n".join(rows) or "Список пуст.")[:3600],
+                    reply_markup=_gdewtf_panel_keyboard(),
+                )
+        elif key == "cities":
+            data = await _api("GET", "/cities")
+            if not data.get("ok"):
+                await callback.message.answer("⚠️ " + _error_text(data), reply_markup=_gdewtf_panel_keyboard())
+            else:
+                cities = [c for c in (data.get("cities") or []) if isinstance(c, dict)]
+                rows = [f"• <b>{_clean(c.get('name'))}</b> · <code>{_clean(c.get('id'))}</code> · команда: {_clean(c.get('team', 0))}" for c in cities[:70]]
+                await callback.message.answer(
+                    f"🏙 <b>Города GDE.WTF · {len(cities)}</b>\n\n" + ("\n".join(rows) or "Список пуст.")[:3600],
+                    reply_markup=_gdewtf_panel_keyboard(),
+                )
+        elif key == "top":
+            data = await _api("GET", "/mods")
+            if not data.get("ok"):
+                await callback.message.answer("⚠️ " + _error_text(data), reply_markup=_gdewtf_panel_keyboard())
+            else:
+                mods = [m for m in (data.get("mods") or []) if isinstance(m, dict)]
+                mods.sort(key=lambda m: float(m.get("rating") or 0), reverse=True)
+                rows = [f"{i}. {_mod_line(m)} · рейтинг <b>{_clean(m.get('rating', 0))}</b>" for i, m in enumerate(mods[:15], 1)]
+                await callback.message.answer("🏆 <b>Рейтинг GDE.WTF</b>\n\n" + ("\n".join(rows) or "Нет данных.")[:3600], reply_markup=_gdewtf_panel_keyboard())
+        elif key == "logs":
+            data = await _api("GET", "/log", params={"limit": 20})
+            if not data.get("ok"):
+                await callback.message.answer("⚠️ " + _error_text(data), reply_markup=_gdewtf_panel_keyboard())
+            else:
+                logs = [item for item in (data.get("log") or []) if isinstance(item, dict)]
+                rows = [f"• {_clean(item.get('act'))} · {_clean(item.get('who'))} → {_clean(item.get('target'))}\n  {_clean(item.get('detail') or item.get('reason'))}" for item in logs[:20]]
+                await callback.message.answer("📜 <b>Журнал GDE.WTF</b>\n\n" + ("\n".join(rows) or "Записей нет.")[:3600], reply_markup=_gdewtf_panel_keyboard())
+        else:
+            await callback.message.answer(_help(), reply_markup=_gdewtf_panel_keyboard())
+        await callback.answer()
+    except Exception:
+        log_gdewtf.exception("GDE.WTF panel callback failed: action=%s user_id=%s", key, callback.from_user.id)
+        await callback.answer("Ошибка панели", show_alert=True)
 
 
 if not BOT_TOKEN:
