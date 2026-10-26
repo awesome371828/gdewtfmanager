@@ -72,7 +72,7 @@ class SecurityAndPerformanceRegressions(unittest.TestCase):
 
     def test_process_has_bounded_command_rate_limit_and_single_instance_guard(self):
         self.assertIn("class CommandRateLimitMiddleware", SOURCE)
-        self.assertIn("flock(handle.fileno(), fcntl.LOCK_EX)", SOURCE)
+        self.assertIn("fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)", SOURCE)
         self.assertIn("TelegramConflictError", SOURCE)
 
     def test_user_supplied_numbers_are_bounded_for_bulk_delete(self):
