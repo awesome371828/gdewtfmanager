@@ -1,7 +1,7 @@
 """
 GDE.WTF — бот проекта для управления сообществами и модерации в Telegram.
 Python 3.11+, aiogram 3, PostgreSQL.
-Set TELEGRAM_BOT_TOKEN, SUPABASE_URL and SUPABASE_SERVICE_KEY in environment.
+Set TELEGRAM_BOT_TOKEN and DATABASE_URL in environment.
 """
 from __future__ import annotations
 
@@ -44,8 +44,7 @@ from aiogram.types import (
     BotCommandScopeChat, ChatPermissions, KeyboardButton, Message, CallbackQuery, BufferedInputFile,
     ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, MenuButtonWebApp,
 )
-from PostgreSQL import Client, create_client
-from PostgreSQL.client import ClientOptions
+from postgres_adapter import PostgresClient, create_client_from_env
 
 try:
     import fcntl
@@ -80,10 +79,7 @@ def acquire_single_instance_lock() -> None:
 # ── Configuration ────────────────────────────────────────────────────────────
 OWNER_ID = int(os.getenv("BOT_OWNER_ID", "6652898792"))
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
-# Never silently fall back to an anon/public key: moderation, ranks and economy
-# require the server-side service-role credential and strict database access.
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "").strip()
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 MINI_APP_URL = "https://awesome371828.github.io/gdewtfmanager/?v=20261024-direct-embed"
@@ -6555,8 +6551,7 @@ async def owner_diagnostics(message: Message) -> None:
         ("Платформа", platform.platform()),
         ("Часовой пояс", "Europe/Moscow (UTC+3)"),
         ("TELEGRAM_BOT_TOKEN задан", "да" if BOT_TOKEN else "нет"),
-        ("SUPABASE_URL задан", "да" if SUPABASE_URL else "нет"),
-        ("SUPABASE_SERVICE_KEY задан", "да" if SUPABASE_KEY else "нет"),
+        ("DATABASE_URL задан", "да" if DATABASE_URL else "нет"),
         ("BOT_OWNER_ID", str(OWNER_ID)),
     ]
     lines = [f"• {name}: <code>{val}</code>" for name, val in checks]
