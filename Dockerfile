@@ -17,6 +17,8 @@ RUN python -m pip install --upgrade pip \
 # Copy every local module imported by the application, including PostgreSQL adapter.
 COPY iris.py moderation_full.py pear_core.py postgres_adapter.py schema.sql entrypoint.sh ./
 COPY tests ./tests
+# Static regression tests inspect the build recipe; include it in the test image.
+COPY Dockerfile ./Dockerfile
 RUN chmod +x /app/entrypoint.sh
 
 # Fail the image build early on syntax errors and regression-test failures.
