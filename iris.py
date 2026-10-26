@@ -7858,6 +7858,59 @@ async def _worker_watchdog(
                 tasks[name] = asyncio.create_task(factories[name](), name=name)
 
 
+async def _configure_telegram_menu(
+    *,
+    group_commands: list[BotCommand],
+    private_commands: list[BotCommand],
+    owner_commands: list[BotCommand],
+) -> None:
+    """Apply cosmetic Telegram settings without blocking bot startup."""
+    actions = [
+        (
+            "Mini App menu button",
+            lambda: bot.set_chat_menu_button(
+                menu_button=MenuButtonWebApp(
+                    text="Открыть GDE.WTF",
+                    web_app=WebAppInfo(url=MINI_APP_URL),
+                ),
+                request_timeout=2,
+            ),
+        ),
+        *[
+            (
+                label,
+                lambda commands=commands, scope=scope: bot.set_my_commands(
+                    commands, scope=scope, request_timeout=2
+                ),
+            )
+            for label, commands, scope in (
+                ("group commands", group_commands, BotCommandScopeAllGroupChats()),
+                ("private commands", private_commands, BotCommandScopeAllPrivateChats()),
+                ("owner commands", private_commands + owner_commands, BotCommandScopeChat(chat_id=OWNER_ID)),
+            )
+        ],
+    ]
+    for label, action in actions:
+        for attempt in range(1, 4):
+            try:
+                await action()
+                if attempt == 1:
+                    log.info("Telegram setting configured: %s", label)
+                else:
+                    log.info("Telegram setting configured after retry %s/3: %s", attempt, label)
+                break
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                if attempt == 3:
+                    log.warning(
+                        "Telegram setting unavailable after 3 attempts; polling remains active (%s): %s",
+                        label, str(exc)[:180],
+                    )
+                else:
+                    await asyncio.sleep(0.5 * attempt)
+
+
 async def main() -> None:
     global _SCHEMA_PROBLEMS
     log.info("GDE.WTF build tag: graceful-signal-shutdown-20261026-r2")
@@ -7963,29 +8016,17 @@ async def main() -> None:
         BotCommand(command="closereport", description="Закрыть жалобу"),
         BotCommand(command="closeappeal", description="Закрыть апелляцию"),
     ]
-    # Set a versioned Mini App URL so Telegram WebView does not keep showing a stale cached page.
-    try:
-        await bot.set_chat_menu_button(
-            menu_button=MenuButtonWebApp(
-                text="Открыть GDE.WTF",
-                web_app=WebAppInfo(url=MINI_APP_URL),
-            ),
-            request_timeout=4,
-        )
-        log.info("Telegram Mini App menu button configured: %s", MINI_APP_URL)
-    except Exception as exc:
-        log.warning("Не удалось обновить кнопку Mini App в меню Telegram; запуск продолжается: %s", str(exc)[:240])
-    # Menu/command registration is cosmetic; a transient Telegram API error here
-    # must not prevent the bot from entering long polling.
-    for label, commands, scope in (
-        ("group commands", group_commands, BotCommandScopeAllGroupChats()),
-        ("private commands", private_commands, BotCommandScopeAllPrivateChats()),
-        ("owner commands", private_commands + owner_commands, BotCommandScopeChat(chat_id=OWNER_ID)),
-    ):
-        try:
-            await bot.set_my_commands(commands, scope=scope, request_timeout=4)
-        except Exception as exc:
-            log.warning("Could not register %s during startup; continuing: %s", label, str(exc)[:240])
+    # Cosmetic Telegram settings must never delay long polling. Configure them
+    # in the background with bounded requests/retries; the bot starts receiving
+    # updates immediately even when Telegram's control-plane endpoints are slow.
+    asyncio.create_task(
+        _configure_telegram_menu(
+            group_commands=group_commands,
+            private_commands=private_commands,
+            owner_commands=owner_commands,
+        ),
+        name="telegram-menu-config",
+    )
 
     # Long polling requires the webhook to be removed. Retry temporary API/network
     # failures instead of exiting immediately and leaving the service down.
