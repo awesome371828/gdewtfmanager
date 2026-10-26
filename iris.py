@@ -330,7 +330,8 @@ def _help() -> str:
         "<code>!амб q</code> — назначить амбассадором города\n"
         "<code>!rgov q регион [city1,city2]</code> — назначить региональным управляющим\n"
         "<code>!назначить q [город] [права]</code> — назначить/обновить модератора\n"
-        "<code>!снять q</code> — снять с модерации\n"
+        "<code>!снять q</code> — снять с модерации (q: @username, Telegram ID или ответ на сообщение)\n"
+        "<code>!снятьварн q номер</code> — снять один конкретный варн (номер начинается с 1)\n"
         "<code>!бан q [причина]</code> / <code>!разбан q</code> — бан/разбан\n\n"
         "В качестве q указывай pub-код, @username или Telegram ID. Доступ определяется ролью и правами твоего аккаунта в проекте GDE.WTF."
     )
@@ -393,7 +394,7 @@ async def _gdewtf_authorize(user_id: int, action: str) -> tuple[bool, str]:
     }
     action_aliases = {
         "warn": "marks", "варн": "marks", "варны": "marks",
-        "снятьварны": "marks", "снять-варны": "marks", "warnclear": "marks",
+        "снятьварны": "marks", "снять-варны": "marks", "снятьварн": "marks", "снять-варн": "marks", "warnclear": "marks",
         "кто": "users", "статус": "users", "права": "users", "поиск": "users",
         "топ": "stats",
         "ник": "users", "nick": "users", "город": "users", "city": "users",
@@ -444,6 +445,29 @@ async def gdewtf_command(message: Message) -> None:
 
     action = parts[1].lower()
     rest = parts[2:] if len(parts) > 2 else []
+
+    # A reply is an unambiguous target: use the sender's Telegram ID and let
+    # GDE.WTF resolve it through the project's existing Telegram account link.
+    replied_user = (
+        message.reply_to_message.from_user
+        if message.reply_to_message and message.reply_to_message.from_user
+        else None
+    )
+    target_actions = {"снять", "modremove", "варн", "warn", "снятьварн", "снять-варн", "снятьварны", "снять-варны", "warnclear"}
+    if replied_user and action in target_actions:
+        reply_id = str(replied_user.id)
+        if action in {"варн", "warn"}:
+            explicit_target = bool(rest and (rest[0].startswith("@") or rest[0].isdigit() or re.fullmatch(r"(?i)RND-[A-Z0-9]{4}", rest[0])))
+            if not explicit_target:
+                rest = [reply_id] + rest
+        elif action in {"снятьварн", "снять-варн"}:
+            if not rest:
+                rest = [reply_id]
+            elif len(rest) == 1 and rest[0].isdigit():
+                rest = [reply_id, rest[0]]
+        elif not rest:
+            rest = [reply_id]
+
     data: dict[str, Any]
     try:
         if action in {"ping", "пинг"}:
@@ -735,6 +759,8 @@ async def gdewtf_command(message: Message) -> None:
             pub = data.get("pub") or mod.get("pub") or "—"
             if action in {"варн", "warn"}:
                 result = f"✅ Предупреждение выдано · <code>{_clean(pub)}</code> · всего: <b>{_clean(data.get('warns_count', 0))}</b>"
+            elif action in {"снятьварн", "снять-варн"}:
+                result = f"✅ Варн №{visible_index} снят · <code>{_clean(pub)}</code> · осталось: <b>{_clean(data.get('warns_count', mod.get('warns_count', 0)))}</b>"
             elif action in {"снятьварны", "снять-варны", "warnclear"}:
                 result = f"✅ Предупреждения обновлены · <code>{_clean(pub)}</code> · осталось: <b>{_clean(data.get('warns_count', 0))}</b>"
             elif action in {"ник", "nick"}:
@@ -747,7 +773,14 @@ async def gdewtf_command(message: Message) -> None:
                 result = f"✅ Статус бана обновлён · <code>{_clean(pub)}</code> · banned: <b>{_clean(data.get('banned'))}</b>"
             await message.answer(result)
         else:
-            await message.answer("⚠️ " + _error_text(data))
+            if str(data.get("error") or "") == "not_found":
+                await message.answer(
+                    "⚠️ В GDE.WTF не найден аккаунт по указанному Telegram ID/@username. "
+                    "Если пользователь входил в проект через MAX и Telegram не был привязан, "
+                    "его Telegram-аккаунт не найден — сначала нужна привязка в проекте."
+                )
+            else:
+                await message.answer("⚠️ " + _error_text(data))
     except Exception:
         log_gdewtf.exception(
             "Unhandled GDE.WTF command failure (action=%s, user_id=%s, chat_id=%s)",
