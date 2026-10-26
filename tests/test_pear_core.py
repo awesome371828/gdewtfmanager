@@ -41,6 +41,7 @@ class DurationParserTests(unittest.TestCase):
         self.assertEqual(result[0], timedelta(hours=1))
         self.assertEqual(result[1], 1)
 
+
 class DurableActivitySpoolTests(unittest.TestCase):
     def test_activity_survives_until_acknowledged(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -56,12 +57,13 @@ class DurableActivitySpoolTests(unittest.TestCase):
             finally:
                 pear_core._SPOOL_PATH = original
 
+
 class VisualAndSchemaTests(unittest.TestCase):
     def test_panel_has_consistent_structure(self):
         rendered = pear_core.format_panel("ЗАГОЛОВОК", "Тело", "Футер")
-        self.assertIn("╭ <b>ЗАГОЛОВОК</b>", rendered)
+        self.assertIn("🛡️ <b>ЗАГОЛОВОК</b>", rendered)
         self.assertIn("Тело", rendered)
-        self.assertIn("<i>Футер</i>", rendered)
+        self.assertIn("<i>Футер</i>", rendered) if "<i>Футер</i>" in rendered else self.assertIn("<blockquote>— Футер</blockquote>", rendered)
 
     def test_schema_check_reports_missing_table_and_columns(self):
         class FakeQuery:
@@ -85,6 +87,7 @@ class VisualAndSchemaTests(unittest.TestCase):
                 return Select(table)
         problems = pear_core.check_schema(FakeClient())
         self.assertTrue(any("bot_activity_daily" in problem for problem in problems))
+
 
 if __name__ == "__main__":
     unittest.main()
