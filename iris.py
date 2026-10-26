@@ -648,6 +648,19 @@ async def gdewtf_command(message: Message) -> None:
                 return
             q, reason = rest[0], " ".join(rest[1:])
             data = await _api("POST", "/warn", body={"q": q, "reason": reason, "by": f"GDE.WTF / {message.from_user.id}"})
+        elif action in {"снятьварн", "снять-варн"}:
+            if len(rest) < 2:
+                await message.answer("Формат: <code>!снятьварн @username номер</code> или ответь на сообщение командой <code>!снятьварн номер</code>. Номер варна начинается с 1.")
+                return
+            try:
+                visible_index = int(rest[1])
+            except ValueError:
+                await message.answer("Номер варна должен быть целым числом от 1.")
+                return
+            if visible_index < 1:
+                await message.answer("Номер варна начинается с 1. Посмотри список командой <code>!варны @username</code>.")
+                return
+            data = await _api("POST", "/warn/clear", body={"q": rest[0], "index": visible_index - 1})
         elif action in {"снятьварны", "снять-варны", "warnclear"}:
             if not rest:
                 await message.answer("Формат: <code>!снятьварны @username [index]</code>")
