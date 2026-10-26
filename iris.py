@@ -7319,24 +7319,55 @@ async def main() -> None:
         name="pear-worker-watchdog",
     )
     try:
-        # Bound concurrent update handlers. An unlimited backlog can fan out hundreds
-        # of handlers at once, burst Telegram replies, exhaust DB connections and make
-        # the bot appear frozen. Keep enough concurrency for fast normal chats.
-        await dp.start_polling(
-            bot,
-            allowed_updates=dp.resolve_used_update_types(),
-            tasks_concurrency_limit=24,
-            # Use Telegram long polling: updates arrive immediately while the
-            # connection stays open, without hammering getUpdates every 2 seconds.
-            # HTTP session timeout (35s) safely exceeds this server-side wait.
-            polling_timeout=25,
-        )
-    except TelegramConflictError:
-        log.critical(
-            "TelegramConflictError: another process is polling getUpdates for this token. "
-            "Stop every other bot instance / workflow using this token before restarting."
-        )
-        raise SystemExit(23)
+        # Re-check immediately before polling. A stale deployment can leave a webhook
+        # registered after the earlier startup cleanup, and Telegram refuses getUpdates
+        # while any webhook is active. Do not discard pending updates while switching.
+        for poll_attempt in range(1, 4):
+            try:
+                webhook_info = await bot.get_webhook_info()
+                if webhook_info.url:
+                    log.warning(
+                        "Telegram webhook is still configured (attempt %s/3); "
+                        "removing it before long polling",
+                        poll_attempt,
+                    )
+                    await bot.delete_webhook(drop_pending_updates=False)
+                    webhook_info = await bot.get_webhook_info()
+                    if webhook_info.url:
+                        raise RuntimeError(
+                            "Telegram webhook remains active after deleteWebhook"
+                        )
+                # Bound concurrent update handlers. An unlimited backlog can fan out
+                # hundreds of handlers at once, burst Telegram replies, exhaust DB
+                # connections and make the bot appear frozen.
+                await dp.start_polling(
+                    bot,
+                    allowed_updates=dp.resolve_used_update_types(),
+                    tasks_concurrency_limit=24,
+                    polling_timeout=25,
+                )
+                break
+            except TelegramConflictError as exc:
+                error_text = str(exc).casefold()
+                if "webhook is active" in error_text or "deletewebhook" in error_text:
+                    if poll_attempt < 3:
+                        log.warning(
+                            "Telegram still reports an active webhook; removing it and "
+                            "retrying polling (%s/3)", poll_attempt
+                        )
+                        await bot.delete_webhook(drop_pending_updates=False)
+                        await asyncio.sleep(1)
+                        continue
+                    log.critical(
+                        "Could not start polling: webhook remains active after 3 attempts. "
+                        "Check whether another deployment repeatedly calls setWebhook."
+                    )
+                    raise SystemExit(24)
+                log.critical(
+                    "TelegramConflictError: another process is polling getUpdates for "
+                    "this token. Stop every other bot instance using this token."
+                )
+                raise SystemExit(23)
     finally:
         # Do not discard queued counters immediately during normal restarts.
         try:
