@@ -185,7 +185,11 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
                         key in data for key in ("ok", "error", "service", "mods", "cities", "mod", "log")
                     ):
                         data = {**nested, **{k: v for k, v in data.items() if k != "data"}}
-                    data.setdefault("ok", response.status < 400)
+                    if response.status >= 400:
+                        data["ok"] = False
+                    elif "ok" not in data:
+                        success = data.get("success")
+                        data["ok"] = success if isinstance(success, bool) else not bool(data.get("error"))
                 elif isinstance(parsed, list):
                     key = "cities" if path.rstrip("/") == "/cities" else (
                         "mods" if path.rstrip("/") == "/mods" else (
