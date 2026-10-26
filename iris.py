@@ -647,6 +647,18 @@ async def gdewtf_command(message: Message) -> None:
     action = parts[1].lower()
     rest = parts[2:] if len(parts) > 2 else []
 
+    # Acknowledge slow external mutations immediately; final success/failure is
+    # still reported only after GDE.WTF responds. This keeps the chat responsive.
+    mutation_actions = {
+        "варн", "warn", "снять", "modremove", "снятьварн", "снять-варн",
+        "анварн", "unwarn", "снятьварны", "снять-варны", "warnclear",
+        "ник", "nick", "город", "city", "амб", "amb", "rgov", "регион",
+        "региональный", "назначить", "modset", "бан", "ban", "разбан",
+        "unban", "анбан",
+    }
+    if action in mutation_actions:
+        await message.answer("⏳ Команда принята. Проверяю запрос в GDE.WTF; результат пришлю отдельным сообщением.")
+
     # A reply is an unambiguous target: use the sender's Telegram ID and let
     # GDE.WTF resolve it through the project's existing Telegram account link.
     replied_user = (
@@ -1821,10 +1833,15 @@ def db_upsert(table: str, payload: dict, on_conflict: str) -> dict | None:
     if db is None:
         return None
     def query():
+        # username_lower is GENERATED ALWAYS in the current PostgreSQL schema.
+        # Never send it in INSERT/UPSERT payloads; PostgreSQL computes it from username.
+        safe_payload = dict(payload)
+        if table == "bot_users":
+            safe_payload.pop("username_lower", None)
         # Request the persisted row explicitly. Without select(), PostgreSQL/PostgREST
         # may return an empty data array for a successful upsert (return=minimal),
         # which callers incorrectly interpret as a failed write.
-        result = db.table(table).upsert(payload, on_conflict=on_conflict).select("*").execute()
+        result = db.table(table).upsert(safe_payload, on_conflict=on_conflict).select("*").execute()
         rows = result.data or []
         if rows:
             return rows[0]
