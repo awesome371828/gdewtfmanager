@@ -613,6 +613,27 @@ async def _gdewtf_authorize(user_id: int, action: str, username: str | None = No
     return True, ""
 
 
+async def _gdewtf_safe_answer(message: Message, *args: Any, **kwargs: Any) -> bool:
+    """Send a bot reply without turning Telegram transport hiccups into command crashes."""
+    try:
+        await message.answer(*args, **kwargs)
+        return True
+    except (asyncio.TimeoutError, TelegramNetworkError) as exc:
+        log_gdewtf.warning(
+            "Could not deliver GDE.WTF command reply (chat_id=%s, message_id=%s): %s",
+            getattr(getattr(message, "chat", None), "id", None),
+            getattr(message, "message_id", None),
+            type(exc).__name__,
+        )
+    except Exception:
+        log_gdewtf.exception(
+            "Could not deliver GDE.WTF command reply (chat_id=%s, message_id=%s)",
+            getattr(getattr(message, "chat", None), "id", None),
+            getattr(message, "message_id", None),
+        )
+    return False
+
+
 @gdewtf_router.message(F.text.startswith("!"))
 @gdewtf_router.message(F.text.regexp(r"(?i)^\s*[/.]?(?:gde|gdewtf)(?:\s|$)"))
 async def gdewtf_command(message: Message) -> None:
@@ -624,10 +645,10 @@ async def gdewtf_command(message: Message) -> None:
         authorized, denial = await _gdewtf_authorize(message.from_user.id, action_for_auth, message.from_user.username)
     except Exception:
         log_gdewtf.exception("Could not verify GDE.WTF project permissions for user=%s", message.from_user.id)
-        await message.answer("⚠️ Не удалось проверить права в GDE.WTF. Команда не выполнена.")
+        await _gdewtf_safe_answer(message, "⚠️ Не удалось проверить права в GDE.WTF. Команда не выполнена.")
         return
     if not authorized:
-        await message.answer(denial)
+        await _gdewtf_safe_answer(message, denial)
         return
     if text.startswith("!"):
         command_body = text[1:].strip()
@@ -637,11 +658,11 @@ async def gdewtf_command(message: Message) -> None:
             text = command_body
     parts = text.split(maxsplit=3)
     if len(parts) == 1 or parts[1].lower() in {"help", "помощь", "команды"}:
-        await message.answer(_help(), reply_markup=_gdewtf_panel_keyboard())
+        await _gdewtf_safe_answer(message, _help(), reply_markup=_gdewtf_panel_keyboard())
         return
 
     if parts[1].lower() in {"панель", "panel", "меню"}:
-        await message.answer("🌐 <b>Панель управления GDE.WTF</b>\nВыбери раздел. Для команд над конкретным человеком можно отвечать на его сообщение.", reply_markup=_gdewtf_panel_keyboard())
+        await _gdewtf_safe_answer(message, "🌐 <b>Панель управления GDE.WTF</b>\nВыбери раздел. Для команд над конкретным человеком можно отвечать на его сообщение.", reply_markup=_gdewtf_panel_keyboard())
         return
 
     action = parts[1].lower()
@@ -695,7 +716,7 @@ async def gdewtf_command(message: Message) -> None:
                 )
                 rest[0] = str(canonical)
             elif action in {"профиль", "who", "mod", "варны", "кто", "статус", "права"}:
-                await message.answer("⚠️ " + _error_text(resolved_data))
+                await _gdewtf_safe_answer(message, "⚠️ " + _error_text(resolved_data))
                 return
 
     data: dict[str, Any]
@@ -703,14 +724,14 @@ async def gdewtf_command(message: Message) -> None:
         if action in {"люди", "people", "users", "участники"}:
             count, problem = await _gdewtf_fetch_people_count()
             if count is None:
-                await message.answer(
+                await _gdewtf_safe_answer(message, 
                     "⚠️ <b>Статистика участников GDE.WTF</b>\n"
                     "API не предоставил общее количество людей.\n"
                     f"<i>{_clean(problem or 'Нет данных')}</i>"
                 )
             else:
                 digits = f"{count:,}".replace(",", " ")
-                await message.answer(
+                await _gdewtf_safe_answer(message, 
                     "🌐 <b>GDE.WTF · статистика проекта</b>\n"
                     "━━━━━━━━━━━━━━━━━━━━\n"
                     "👤 <b>Всего участников</b>\n"
@@ -723,18 +744,18 @@ async def gdewtf_command(message: Message) -> None:
         if action in {"ping", "пинг"}:
             data = await _api("GET", "/ping")
             if data.get("ok"):
-                await message.answer(
+                await _gdewtf_safe_answer(message, 
                     "✅ <b>GDE.WTF API доступен</b>\n"
                     f"Сервис: {_clean(data.get('service'))} · v{_clean(data.get('v'))}\n"
                     f"Модераторов: {_clean(data.get('mods'))} · городов: {_clean(data.get('cities'))}"
                 )
             else:
-                await message.answer("⚠️ " + _error_text(data))
+                await _gdewtf_safe_answer(message, "⚠️ " + _error_text(data))
             return
 
         if action in {"профиль", "who", "mod", "варны", "кто", "статус", "права"}:
             if not rest:
-                await message.answer("Укажи модератора: <code>!варны @username</code>")
+                await _gdewtf_safe_answer(message, "Укажи модератора: <code>!варны @username</code>")
                 return
             mod, data = await _gdewtf_resolve_mod(rest[0])
             if data.get("ok") and isinstance(mod, dict):
@@ -750,19 +771,19 @@ async def gdewtf_command(message: Message) -> None:
                             except (ValueError, TypeError, OSError):
                                 when = "дата неизвестна"
                             rows.append(f"<b>{i}.</b> {escape(when)} · {_clean(warn.get('reason'), 'без причины')}\nВыдал: {_clean(warn.get('by'))}")
-                    await message.answer(
+                    await _gdewtf_safe_answer(message, 
                         f"⚠️ <b>Варны · {_clean(mod.get('nick') or mod.get('username') or mod.get('pub'))}</b>\n"
                         f"Всего: <b>{_clean(mod.get('warns_count', len(warns)))}</b>\n\n" +
                         ("\n\n".join(rows) if rows else "Предупреждений нет.")
                     )
                 elif action == "кто":
-                    await message.answer(
+                    await _gdewtf_safe_answer(message, 
                         f"👤 <b>Карточка модератора</b>\n\n{_mod_line(mod)}\n"
                         f"Рейтинг: <b>{_clean(mod.get('rating', 0))}</b> · варны: <b>{_clean(mod.get('warns_count', 0))}</b>\n"
                         f"Онлайн: <b>{'да' if mod.get('online') else 'нет'}</b> · смена: <b>{'да' if mod.get('on_shift') else 'нет'}</b>"
                     )
                 elif action == "статус":
-                    await message.answer(
+                    await _gdewtf_safe_answer(message, 
                         f"🛰 <b>Статус модератора</b>\n\n{_mod_line(mod)}\n"
                         f"Онлайн: <b>{'да' if mod.get('online') else 'нет'}</b>\n"
                         f"На смене: <b>{'да' if mod.get('on_shift') else 'нет'}</b>\n"
@@ -770,25 +791,25 @@ async def gdewtf_command(message: Message) -> None:
                         f"Рейтинг: <b>{_clean(mod.get('rating', 0))}</b>"
                     )
                 elif action == "права":
-                    await message.answer(
+                    await _gdewtf_safe_answer(message, 
                         f"🔐 <b>Права модератора</b>\n\n{_mod_line(mod)}\n"
                         f"Роль: {_clean(mod.get('role_label') or mod.get('role'))}\n"
                         f"Права: <code>{_clean(', '.join(map(str, mod.get('perms') or [])) or '—')}</code>"
                     )
                 else:
-                    await message.answer(_profile(mod))
+                    await _gdewtf_safe_answer(message, _profile(mod))
             else:
-                await message.answer("⚠️ " + _error_text(data))
+                await _gdewtf_safe_answer(message, "⚠️ " + _error_text(data))
             return
 
         if action in {"топ", "поиск"}:
             if action == "поиск" and not rest:
-                await message.answer("Формат: <code>!поиск слово</code>")
+                await _gdewtf_safe_answer(message, "Формат: <code>!поиск слово</code>")
                 return
             params = {"city": rest[0]} if action == "топ" and rest else None
             data = await _api("GET", "/mods", params=params)
             if not data.get("ok"):
-                await message.answer("⚠️ " + _error_text(data))
+                await _gdewtf_safe_answer(message, "⚠️ " + _error_text(data))
                 return
             mods = [m for m in (data.get("mods") or []) if isinstance(m, dict)]
             if action == "топ":
@@ -803,14 +824,14 @@ async def gdewtf_command(message: Message) -> None:
                 mods = [m for m in mods if query in " ".join(str(m.get(k) or "") for k in ("pub", "username", "name", "nick", "city_name", "city")).casefold()]
                 rows = [_mod_line(m) for m in mods[:20]]
                 title = f"🔎 <b>Поиск · найдено {len(mods)}</b>"
-            await message.answer(title + "\n\n" + ("\n\n".join(rows) if rows else "Ничего не найдено.")[:3700])
+            await _gdewtf_safe_answer(message, title + "\n\n" + ("\n\n".join(rows) if rows else "Ничего не найдено.")[:3700])
             return
 
         if action in {"модераторы", "mods"}:
             params = {"city": rest[0]} if rest else None
             data = await _api("GET", "/mods", params=params)
             if not data.get("ok"):
-                await message.answer("⚠️ " + _error_text(data))
+                await _gdewtf_safe_answer(message, "⚠️ " + _error_text(data))
                 return
             mods = [m for m in (data.get("mods") or []) if isinstance(m, dict)]
             # Compact directory: one line per moderator, remove duplicated city/role
@@ -855,7 +876,7 @@ async def gdewtf_command(message: Message) -> None:
                     bits.append(_clean(city[:15] + "…" if len(city) > 16 else city))
                 rows.append("• " + " · ".join(bits))
             if not rows:
-                await message.answer("Список пуст.")
+                await _gdewtf_safe_answer(message, "Список пуст.")
                 return
             output = title + "\n".join(rows)
             # Split the directory into multiple Telegram messages at row boundaries.
@@ -877,7 +898,7 @@ async def gdewtf_command(message: Message) -> None:
             for index, chunk in enumerate(chunks, start=1):
                 if len(chunks) > 1:
                     chunk = chunk.replace(title, title.rstrip() + f" · часть {index}/{len(chunks)}\n", 1)
-                await message.answer(
+                await _gdewtf_safe_answer(message, 
                     chunk,
                     parse_mode=ParseMode.HTML,
                     disable_web_page_preview=True,
@@ -887,13 +908,13 @@ async def gdewtf_command(message: Message) -> None:
         if action in {"города", "cities"}:
             data = await _api("GET", "/cities")
             if not data.get("ok"):
-                await message.answer("⚠️ " + _error_text(data))
+                await _gdewtf_safe_answer(message, "⚠️ " + _error_text(data))
                 return
             rows = []
             for city in (data.get("cities") or [])[:100]:
                 if isinstance(city, dict):
                     rows.append(f"• <b>{_clean(city.get('name'))}</b> — <code>{_clean(city.get('id'))}</code> · регион: {_clean(city.get('region'))} · команда: {_clean(city.get('team', 0))}")
-            await message.answer(f"🌐 <b>Города GDE.WTF · {len(data.get('cities') or [])}</b>\n\n" + ("\n".join(rows) or "Список пуст.")[:3700])
+            await _gdewtf_safe_answer(message, f"🌐 <b>Города GDE.WTF · {len(data.get('cities') or [])}</b>\n\n" + ("\n".join(rows) or "Список пуст.")[:3700])
             return
 
         if action in {"журнал", "лог", "log"}:
@@ -907,13 +928,13 @@ async def gdewtf_command(message: Message) -> None:
                     params["q"] = rest[0]
             data = await _api("GET", "/log", params=params)
             if not data.get("ok"):
-                await message.answer("⚠️ " + _error_text(data))
+                await _gdewtf_safe_answer(message, "⚠️ " + _error_text(data))
                 return
             lines = []
             for item in (data.get("log") or [])[:40]:
                 if isinstance(item, dict):
                     lines.append(f"• {_clean(item.get('act'))} · {_clean(item.get('who'))} → {_clean(item.get('target'))}\n  {_clean(item.get('detail') or item.get('reason'))}")
-            await message.answer(f"📜 <b>Журнал GDE.WTF · {data.get('count', len(lines))}</b>\n\n" + ("\n".join(lines) or "Записей нет.")[:3700])
+            await _gdewtf_safe_answer(message, f"📜 <b>Журнал GDE.WTF · {data.get('count', len(lines))}</b>\n\n" + ("\n".join(lines) or "Записей нет.")[:3700])
             return
 
         if action in {"варн", "warn"}:
@@ -921,71 +942,92 @@ async def gdewtf_command(message: Message) -> None:
             # Telegram message. Reason is optional; bare !варн on a reply warns
             # the replied-to user with an empty reason.
             if not rest:
-                await message.answer("Укажи @username/Telegram ID или ответь на сообщение участника командой <code>!варн</code>. Причина необязательна.")
+                await _gdewtf_safe_answer(message, "Укажи @username/Telegram ID или ответь на сообщение участника командой <code>!варн</code>. Причина необязательна.")
                 return
             q, reason = rest[0], " ".join(rest[1:]).strip()
-            # GDE.WTF API currently rejects empty reasons. Use a clear default
-            # instead of forcing the operator to type one.
+            # Capture the count before the write. If the API commits the warning
+            # but its POST response times out, read-after-write verification avoids
+            # falsely reporting failure and avoids blindly repeating a non-idempotent POST.
+            before_data = await _api("GET", "/mod", params={"q": q})
+            before_mod = before_data.get("mod") if before_data.get("ok") and isinstance(before_data.get("mod"), dict) else {}
+            try:
+                before_count = int(before_mod.get("warns_count") or len(before_mod.get("warns") or []))
+            except (TypeError, ValueError):
+                before_count = 0
+            # Reason is optional in the command. The external API requires a
+            # non-empty reason, so use a default only in the API payload.
             api_reason = reason or "Выдал варн"
             data = await _api("POST", "/warn", body={"q": q, "reason": api_reason, "by": f"GDE.WTF / {message.from_user.id}"})
+            if not data.get("ok") and data.get("error") == "api_unavailable" and data.get("detail") == "timeout":
+                _gdewtf_invalidate_api_cache()
+                verify = await _api("GET", "/mod", params={"q": q})
+                verify_mod = verify.get("mod") if verify.get("ok") and isinstance(verify.get("mod"), dict) else {}
+                try:
+                    after_count = int(verify_mod.get("warns_count") or len(verify_mod.get("warns") or []))
+                except (TypeError, ValueError):
+                    after_count = before_count
+                if verify.get("ok") and after_count > before_count:
+                    data = {"ok": True, "pub": verify_mod.get("pub") or q, "mod": verify_mod, "warns_count": after_count, "verified_after_timeout": True}
+                else:
+                    log_gdewtf.warning("GDE.WTF /warn timed out; warning not confirmed for q=%r (before=%s after=%s)", q, before_count, after_count)
         elif action in {"снятьварн", "снять-варн", "анварн", "unwarn"}:
             if not rest:
-                await message.answer("Формат: <code>!снятьварн @username [номер]</code> или ответь на сообщение командой <code>!снятьварн [номер]</code>. Без номера снимается первый варн.")
+                await _gdewtf_safe_answer(message, "Формат: <code>!снятьварн @username [номер]</code> или ответь на сообщение командой <code>!снятьварн [номер]</code>. Без номера снимается первый варн.")
                 return
             q = rest[0]
             profile_data = await _api("GET", "/mod", params={"q": q})
             profile = profile_data.get("mod") if profile_data.get("ok") and isinstance(profile_data.get("mod"), dict) else None
             if profile is None:
-                await message.answer("⚠️ " + _error_text(profile_data))
+                await _gdewtf_safe_answer(message, "⚠️ " + _error_text(profile_data))
                 return
             warns = profile.get("warns") or []
             if not isinstance(warns, list) or not warns:
-                await message.answer(f"ℹ️ У <code>{_clean(profile.get('pub') or q)}</code> нет предупреждений — снимать нечего.")
+                await _gdewtf_safe_answer(message, f"ℹ️ У <code>{_clean(profile.get('pub') or q)}</code> нет предупреждений — снимать нечего.")
                 return
             visible_index = 1
             if len(rest) > 1:
                 try:
                     visible_index = int(rest[1])
                 except ValueError:
-                    await message.answer("Номер варна должен быть целым числом от 1.")
+                    await _gdewtf_safe_answer(message, "Номер варна должен быть целым числом от 1.")
                     return
             if visible_index < 1 or visible_index > len(warns):
-                await message.answer(f"Номер должен быть от 1 до {len(warns)}. Укажи <code>!варны {escape(str(q))}</code>.")
+                await _gdewtf_safe_answer(message, f"Номер должен быть от 1 до {len(warns)}. Укажи <code>!варны {escape(str(q))}</code>.")
                 return
             data = await _api("POST", "/warn/clear", body={"q": q, "index": visible_index - 1})
         elif action in {"снятьварны", "снять-варны", "warnclear"}:
             if not rest:
-                await message.answer("Формат: <code>!снятьварны @username</code> — снять все предупреждения.")
+                await _gdewtf_safe_answer(message, "Формат: <code>!снятьварны @username</code> — снять все предупреждения.")
                 return
             q = rest[0]
             profile_data = await _api("GET", "/mod", params={"q": q})
             profile = profile_data.get("mod") if profile_data.get("ok") and isinstance(profile_data.get("mod"), dict) else None
             if profile is None:
-                await message.answer("⚠️ " + _error_text(profile_data))
+                await _gdewtf_safe_answer(message, "⚠️ " + _error_text(profile_data))
                 return
             warns = profile.get("warns") or []
             if not warns and not int(profile.get("warns_count") or 0):
-                await message.answer(f"ℹ️ У <code>{_clean(profile.get('pub') or q)}</code> нет предупреждений — снимать нечего.")
+                await _gdewtf_safe_answer(message, f"ℹ️ У <code>{_clean(profile.get('pub') or q)}</code> нет предупреждений — снимать нечего.")
                 return
             data = await _api("POST", "/warn/clear", body={"q": q})
         elif action in {"ник", "nick"}:
             if len(rest) < 2:
-                await message.answer("Формат: <code>!ник @username новый_ник</code> или <code>!ник @username -</code>")
+                await _gdewtf_safe_answer(message, "Формат: <code>!ник @username новый_ник</code> или <code>!ник @username -</code>")
                 return
             data = await _api("POST", "/nick", body={"q": rest[0], "nick": "" if rest[1] == "-" else " ".join(rest[1:])})
         elif action in {"город", "city"}:
             if len(rest) < 2:
-                await message.answer("Формат: <code>!город @username city_id</code> (для удаления укажи -)")
+                await _gdewtf_safe_answer(message, "Формат: <code>!город @username city_id</code> (для удаления укажи -)")
                 return
             data = await _api("POST", "/city", body={"q": rest[0], "city": "" if rest[1] == "-" else rest[1]})
         elif action in {"амб", "amb"}:
             if not rest:
-                await message.answer("Формат: <code>!амб @username</code>")
+                await _gdewtf_safe_answer(message, "Формат: <code>!амб @username</code>")
                 return
             data = await _api("POST", "/mod/set", body={"q": rest[0], "amb": True})
         elif action in {"rgov", "регион", "региональный"}:
             if len(rest) < 2:
-                await message.answer("Формат: <code>!rgov @username регион [city1,city2]</code>")
+                await _gdewtf_safe_answer(message, "Формат: <code>!rgov @username регион [city1,city2]</code>")
                 return
             body = {"q": rest[0], "rgov": True, "region": rest[1]}
             if len(rest) > 2:
@@ -993,7 +1035,7 @@ async def gdewtf_command(message: Message) -> None:
             data = await _api("POST", "/mod/set", body=body)
         elif action in {"назначить", "modset"}:
             if not rest:
-                await message.answer("Формат: <code>!назначить @username [city_id] [права]</code>")
+                await _gdewtf_safe_answer(message, "Формат: <code>!назначить @username [city_id] [права]</code>")
                 return
             body = {"q": rest[0]}
             options = rest[1].split() if len(rest) > 1 else []
@@ -1005,7 +1047,7 @@ async def gdewtf_command(message: Message) -> None:
             data = await _api("POST", "/mod/set", body=body)
         elif action in {"снять", "modremove"}:
             if not rest:
-                await message.answer("Формат: <code>!снять @username</code>")
+                await _gdewtf_safe_answer(message, "Формат: <code>!снять @username</code>")
                 return
             remove_q = rest[0]
             data = await _api("POST", "/mod/remove", body={"q": remove_q})
@@ -1022,7 +1064,7 @@ async def gdewtf_command(message: Message) -> None:
                     log_gdewtf.warning("GDE.WTF /mod/remove timed out and verification still finds q=%r", remove_q)
         elif action in {"бан", "ban"}:
             if not rest:
-                await message.answer("Формат: <code>!бан @username [причина]</code>")
+                await _gdewtf_safe_answer(message, "Формат: <code>!бан @username [причина]</code>")
                 return
             body = {"q": rest[0], "ban": True}
             if len(rest) > 1:
@@ -1030,11 +1072,11 @@ async def gdewtf_command(message: Message) -> None:
             data = await _api("POST", "/ban", body=body)
         elif action in {"разбан", "unban", "анбан"}:
             if not rest:
-                await message.answer("Формат: <code>!разбан @username</code>")
+                await _gdewtf_safe_answer(message, "Формат: <code>!разбан @username</code>")
                 return
             data = await _api("POST", "/ban", body={"q": rest[0], "ban": False})
         else:
-            await message.answer(_help())
+            await _gdewtf_safe_answer(message, _help())
             return
 
         if data.get("ok"):
@@ -1065,16 +1107,16 @@ async def gdewtf_command(message: Message) -> None:
                 result = f"♻️ Бан снят · <code>{_clean(pub)}</code>"
             else:
                 result = f"✅ Статус бана обновлён · <code>{_clean(pub)}</code> · banned: <b>{_clean(data.get('banned'))}</b>"
-            await message.answer(result)
+            await _gdewtf_safe_answer(message, result)
         else:
             if str(data.get("error") or "") == "not_found":
-                await message.answer(
+                await _gdewtf_safe_answer(message, 
                     "⚠️ В GDE.WTF не найден аккаунт по указанному Telegram ID/@username. "
                     "Если пользователь входил в проект через MAX и Telegram не был привязан, "
                     "его Telegram-аккаунт не найден — сначала нужна привязка в проекте."
                 )
             else:
-                await message.answer("⚠️ " + _error_text(data))
+                await _gdewtf_safe_answer(message, "⚠️ " + _error_text(data))
     except Exception:
         log_gdewtf.exception(
             "Unhandled GDE.WTF command failure (action=%s, user_id=%s, chat_id=%s)",
@@ -1082,7 +1124,7 @@ async def gdewtf_command(message: Message) -> None:
             message.chat.id,
         )
         try:
-            await message.answer("⚠️ Не удалось выполнить команду GDE.WTF. Подробности записаны в лог.")
+            await _gdewtf_safe_answer(message, "⚠️ Не удалось выполнить команду GDE.WTF. Подробности записаны в лог.")
         except Exception:
             log_gdewtf.exception("Could not send GDE.WTF command error reply")
 
