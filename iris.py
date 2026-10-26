@@ -117,6 +117,9 @@ except ValueError:
     OWNER_ID = 0
 
 _TIMEOUT = aiohttp.ClientTimeout(total=8, connect=3, sock_read=5)
+# Reuse keep-alive connections to avoid a fresh DNS/TCP/TLS handshake on every
+# command. The API session is closed cleanly with the bot during shutdown.
+_API_SESSION: aiohttp.ClientSession | None = None
 
 
 async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
@@ -128,13 +131,19 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
         "X-API-Key": API_KEY,
         "Accept": "application/json",
     }
+    global _API_SESSION
     try:
-        async with aiohttp.ClientSession(timeout=_TIMEOUT, headers=headers) as session:
-            async with session.request(
-                method, f"{API_BASE}/{path.lstrip('/')}",
-                params=params if method == "GET" else None,
-                json=body if method != "GET" else None,
-            ) as response:
+        if _API_SESSION is None or _API_SESSION.closed:
+            _API_SESSION = aiohttp.ClientSession(
+                timeout=_TIMEOUT,
+                headers=headers,
+                connector=aiohttp.TCPConnector(limit=100, ttl_dns_cache=300, keepalive_timeout=30),
+            )
+        async with _API_SESSION.request(
+            method, f"{API_BASE}/{path.lstrip('/')}",
+            params=params if method == "GET" else None,
+            json=body if method != "GET" else None,
+        ) as response:
                 # Be tolerant of API gateways that return a list, a nested
                 # {data: ...} envelope, plain text, or a successful empty body.
                 # Keep the HTTP status authoritative for transport-level success.
@@ -539,22 +548,30 @@ async def gdewtf_command(message: Message) -> None:
                 await message.answer("Список пуст.")
                 return
             output = title + "\n".join(rows)
-            # Telegram text messages have a hard ~4096-character limit. Keep the
-            # entire directory in one message; fail clearly rather than silently split it.
-            if len(output) > 4000:
-                # The username and verbose role are already omitted; pub codes are the
-                # least important field for a one-message directory and can be dropped.
-                compact_rows = []
-                for mod, row in zip(mods, rows):
-                    compact_rows.append(re.sub(r"\s*·\s*<code>.*?</code>", "", row))
-                output = title + "\n".join(compact_rows)
-            if len(output) > 4000:
-                # Last-resort compact form preserves clickable names, role and city.
-                output = title + "\n".join(
-                    row if len(row) < 75 else row[:72] + "…"
-                    for row in rows
+            # Split the directory into multiple Telegram messages at row boundaries.
+            # Never slice HTML markup: truncating an <a> tag made Telegram reject the
+            # whole answer and triggered the generic "command failed" response.
+            chunks: list[str] = []
+            current_rows: list[str] = []
+            current_length = len(title)
+            for row in rows:
+                row_length = len(row) + 1
+                if current_rows and current_length + row_length > 3500:
+                    chunks.append(title + "\n".join(current_rows))
+                    current_rows = []
+                    current_length = len(title)
+                current_rows.append(row)
+                current_length += row_length
+            if current_rows:
+                chunks.append(title + "\n".join(current_rows))
+            for index, chunk in enumerate(chunks, start=1):
+                if len(chunks) > 1:
+                    chunk = chunk.replace(title, title.rstrip() + f" · часть {index}/{len(chunks)}\\n", 1)
+                await message.answer(
+                    chunk,
+                    parse_mode=ParseMode.HTML,
+                    disable_web_page_preview=True,
                 )
-            await message.answer(output[:4090], parse_mode=ParseMode.HTML, disable_web_page_preview=True)
             return
 
         if action in {"города", "cities"}:
@@ -683,8 +700,15 @@ async def gdewtf_command(message: Message) -> None:
         else:
             await message.answer("⚠️ " + _error_text(data))
     except Exception:
-        log_gdewtf.exception("Unhandled GDE.WTF command failure")
-        await message.answer("⚠️ Не удалось выполнить команду GDE.WTF. Подробности записаны в лог.")
+        log_gdewtf.exception(
+            "Unhandled GDE.WTF command failure (action=%s, user_id=%s, chat_id=%s)",
+            action_for_auth, message.from_user.id if message.from_user else None,
+            message.chat.id,
+        )
+        try:
+            await message.answer("⚠️ Не удалось выполнить команду GDE.WTF. Подробности записаны в лог.")
+        except Exception:
+            log_gdewtf.exception("Could not send GDE.WTF command error reply")
 
 
 if not BOT_TOKEN:
@@ -7417,6 +7441,9 @@ async def main() -> None:
             except Exception:
                 log.exception("Background worker failed during shutdown")
         await bot.session.close()
+        global _API_SESSION
+        if _API_SESSION is not None and not _API_SESSION.closed:
+            await _API_SESSION.close()
 
 
 
