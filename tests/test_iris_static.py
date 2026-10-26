@@ -462,6 +462,9 @@ class PearCMStaticRegressionTests(unittest.TestCase):
     def test_gdewtf_api_timeouts_are_bounded_and_warning_reads_are_reused(self):
         self.assertIn("request_timeout: aiohttp.ClientTimeout | None = None", self.source)
         self.assertIn("timeout=request_timeout or _TIMEOUT", self.source)
+        self.assertIn('success = data.get("success")', self.source)
+        self.assertIn('normalized_path == "/ping"', self.source)
+        self.assertIn('data["ok"] = False', self.source)
         self.assertIn("не возвращает общее число всех участников", self.source)
         self.assertNotIn('for endpoint in ("/stats", "/people", "/users")', self.source)
         self.assertIn("before_mod = resolved_target_profile if isinstance(resolved_target_profile, dict) else {}", self.source)
