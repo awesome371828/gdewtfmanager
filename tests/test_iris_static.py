@@ -463,6 +463,8 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn("request_timeout: aiohttp.ClientTimeout | None = None", self.source)
         self.assertIn("timeout=request_timeout or _TIMEOUT", self.source)
         self.assertIn('success = data.get("success")', self.source)
+        self.assertIn("if isinstance(nested, dict):", self.source)
+        self.assertIn("elif isinstance(nested, list):", self.source)
         self.assertIn('normalized_path == "/ping"', self.source)
         self.assertIn('data["ok"] = False', self.source)
         self.assertIn("не возвращает общее число всех участников", self.source)
