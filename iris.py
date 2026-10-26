@@ -1653,7 +1653,26 @@ class CommandRateLimitMiddleware(BaseMiddleware):
                     _COMMAND_NOTICE_LAST.pop(old_key, None)
         return await handler(event, data)
 
+class GlobalBanCallbackMiddleware(BaseMiddleware):
+    """Apply global account restrictions to inline-button actions as well as messages."""
+    async def __call__(self, handler, event, data):
+        user = getattr(event, "from_user", None)
+        if user is None or user.is_bot or user.id == OWNER_ID:
+            return await handler(event, data)
+        if not await asyncio.to_thread(_is_globally_banned, user.id):
+            return await handler(event, data)
+        try:
+            await event.answer(
+                "⛔ Доступ к функциям GDE.WTF для этого аккаунта ограничен.",
+                show_alert=True,
+            )
+        except Exception:
+            log.debug("Could not notify globally banned callback user=%s", user.id, exc_info=True)
+        return None
+
+
 router.message.middleware(CommandRateLimitMiddleware())
+router.callback_query.outer_middleware(GlobalBanCallbackMiddleware())
 
 # Track observed message IDs by chat AND forum topic. Telegram message IDs are
 # shared across topics in a supergroup, so a chat-wide purge can otherwise delete
@@ -2895,10 +2914,6 @@ async def chat_warns(message: Message) -> None:
         "\n\n".join(lines) + tail + f"\n\n<i>Сейчас активно: {len(entries)} · срок варна — 7 дней</i>",
         "Модерация · данные этого чата",
     ))
-
-@router.message(F.text == "💍 Брак")
-async def marriage_menu(message: Message) -> None:
-    await message.answer("💍 Чтобы предложить брак, ответьте на сообщение человека командой <code>/marry</code>.\nПосмотреть статус: <code>/marriage</code>.")
 
 @router.message(F.text == "🛡 Кто админ")
 @router.message(Command("admins"))
