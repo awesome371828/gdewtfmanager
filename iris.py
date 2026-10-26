@@ -520,6 +520,15 @@ async def _gdewtf_resolve_mod(query: str) -> tuple[dict[str, Any] | None, dict[s
 
 def _gdewtf_profile_matches_telegram(profile: dict[str, Any], user_id: int, username: str | None) -> bool:
     values = _gdewtf_profile_identity_values(profile)
+    # If the API gives an explicit Telegram ID, it is authoritative. Never let
+    # a recycled username override a different linked Telegram account.
+    explicit_ids = {
+        str(profile.get(key)).strip()
+        for key in ("tg_id", "telegram_id", "telegram_user_id", "user_id", "telegramId", "telegramUserId")
+        if profile.get(key) is not None and str(profile.get(key)).strip().isdigit()
+    }
+    if explicit_ids:
+        return str(user_id) in explicit_ids
     if str(user_id) in values:
         return True
     return bool(username and username.strip().casefold().lstrip("@") in values)
@@ -584,6 +593,17 @@ async def _gdewtf_authorize(user_id: int, action: str, username: str | None = No
             continue
         candidate = response.get("mod") if isinstance(response.get("mod"), dict) else None
         if response.get("ok") and candidate:
+            explicit_ids = {
+                str(candidate.get(key)).strip()
+                for key in ("tg_id", "telegram_id", "telegram_user_id", "user_id", "telegramId", "telegramUserId")
+                if candidate.get(key) is not None and str(candidate.get(key)).strip().isdigit()
+            }
+            if explicit_ids and str(user_id) not in explicit_ids:
+                api_errors.append(f"{query}:telegram_identity_mismatch")
+                continue
+            if query != str(user_id) and not _gdewtf_profile_matches_telegram(candidate, user_id, username):
+                api_errors.append(f"{query}:telegram_identity_mismatch")
+                continue
             mod = candidate
             break
         error = str(response.get("error") or ("not_found" if response.get("ok") else "unknown_error"))
