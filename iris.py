@@ -376,54 +376,37 @@ def _gdewtf_perms(profile: dict[str, Any]) -> set[str]:
     return {v for v in values if v}
 
 async def _gdewtf_authorize(user_id: int, action: str) -> tuple[bool, str]:
+    """Resolve membership through the live GDE.WTF API.
+
+    Do not duplicate the project's permission matrix in this bot: project roles and
+    permission labels may evolve. A successful /mod lookup proves project membership;
+    every read/write endpoint remains responsible for enforcing its own API policy.
+    """
     now = time.monotonic()
     cached = _GDEWTF_ACCESS_CACHE.get(user_id)
-    if cached and now - cached[0] < _GDEWTF_ACCESS_CACHE_TTL:
+    if cached and now - cached[0] < min(_GDEWTF_ACCESS_CACHE_TTL, 5.0):
         profile = cached[1]
     else:
         response = await _api("GET", "/mod", params={"q": str(user_id)})
         mod = response.get("mod") if isinstance(response.get("mod"), dict) else None
         if not response.get("ok") or not mod:
-            return False, "Не удалось подтвердить твои права в GDE.WTF. Проверь, что Telegram ID привязан к профилю модератора, и попробуй позже."
+            return False, "⛔ API GDE.WTF не подтвердил твой аккаунт в проекте. Проверь привязку Telegram в moder.gde.wtf."
         profile = mod
         _GDEWTF_ACCESS_CACHE[user_id] = (now, profile)
 
-    role = str(profile.get("role") or "").strip().casefold()
-    perms = _gdewtf_perms(profile)
-    if role not in {"admin", "chief", "rgov", "amb", "mod"}:
-        return False, "⛔ Твой аккаунт не имеет действующей роли в проекте GDE.WTF."
-    if perms.intersection({"all", "full", "*"}):
-        return True, ""
-
-    # Read-only commands need at least one project permission. Mutations require
-    # the relevant permission; the GDE.WTF API remains the final authority.
-    read_actions = {
-        "help", "помощь", "команды", "панель", "panel", "меню", "ping", "пинг", "профиль", "who", "mod",
-        "варны", "кто", "статус", "права", "топ", "поиск",
-        "модераторы", "mods", "города", "cities", "журнал", "лог", "log",
-    }
-    action_aliases = {
-        "warn": "marks", "варн": "marks", "варны": "marks",
-        "снятьварны": "marks", "снять-варны": "marks", "снятьварн": "marks", "снять-варн": "marks", "warnclear": "marks", "анварн": "marks", "unwarn": "marks",
-        "кто": "users", "статус": "users", "права": "users", "поиск": "users",
-        "топ": "stats",
-        "ник": "users", "nick": "users", "город": "users", "city": "users",
-        "амб": "users", "amb": "users", "rgov": "users", "регион": "users",
-        "региональный": "users", "назначить": "users", "modset": "users",
-        "снять": "users", "modremove": "users", "бан": "users", "ban": "users",
-        "разбан": "users", "unban": "users", "анбан": "users",
-    }
-    if action in read_actions:
-        if perms.intersection(_GDEWTF_KNOWN_PERMS):
-            return True, ""
-        return False, "⛔ В проекте GDE.WTF у тебя не назначены права доступа."
-    required = action_aliases.get(action)
-    if required and (required in perms or "maint" in perms):
-        return True, ""
-    return False, (
-        f"⛔ Для команды нужна проектная привилегия <code>{_clean(required or 'maint')}</code>. "
-        "Попроси администратора GDE.WTF выдать соответствующие права."
+    # Be tolerant of the role names/permission structures returned by the project.
+    # /mod only returns a project moderator; don't reject valid Russian role labels
+    # or new permission identifiers based on a stale local allow-list.
+    if profile.get("banned") is True or profile.get("active") is False:
+        _GDEWTF_ACCESS_CACHE.pop(user_id, None)
+        return False, "⛔ У аккаунта нет активного доступа к проекту GDE.WTF."
+    has_project_identity = any(
+        profile.get(field) not in (None, "", [], {})
+        for field in ("pub", "role", "role_label", "perms", "permissions", "tg_id", "telegram_id", "user_id")
     )
+    if not has_project_identity:
+        return False, "⛔ API GDE.WTF не подтвердил права аккаунта в проекте."
+    return True, ""
 
 
 @gdewtf_router.message(F.text.startswith("!"))
@@ -856,7 +839,7 @@ async def gdewtf_panel_callback(callback: CallbackQuery) -> None:
             await callback.answer("⛔ Нет прав в проекте GDE.WTF", show_alert=True)
             return
         if key == "help":
-            await callback.message.answer(_help(), reply_markup=_gdewtf_panel_keyboard())
+            await callback.message.edit_text(_help(), reply_markup=_gdewtf_panel_keyboard())
         elif key in {"warn", "clearwarn", "ban", "unban", "setmod", "remove"}:
             examples = {
                 "warn": "Ответь на сообщение модератора: <code>!варн причина</code>\nИли: <code>!варн @username причина</code>",
@@ -866,54 +849,62 @@ async def gdewtf_panel_callback(callback: CallbackQuery) -> None:
                 "setmod": "Ответь на сообщение: <code>!назначить [город] [права]</code> или укажи q явно.",
                 "remove": "Ответь на сообщение: <code>!снять</code> или укажи <code>!снять @username</code>.",
             }
-            await callback.message.answer("🛡 <b>Модерация GDE.WTF</b>\n" + examples[key])
+            await callback.message.edit_text("🛡 <b>Модерация GDE.WTF</b>\n" + examples[key])
         elif key == "ping":
             data = await _api("GET", "/ping")
             output = (f"🟢 <b>GDE.WTF API доступен</b>\nМодераторов: {_clean(data.get('mods'))} · городов: {_clean(data.get('cities'))}"
                       if data.get("ok") else "⚠️ " + _error_text(data))
-            await callback.message.answer(output, reply_markup=_gdewtf_panel_keyboard())
+            await callback.message.edit_text(output, reply_markup=_gdewtf_panel_keyboard())
         elif key == "mods":
             data = await _api("GET", "/mods")
             if not data.get("ok"):
-                await callback.message.answer("⚠️ " + _error_text(data), reply_markup=_gdewtf_panel_keyboard())
+                await callback.message.edit_text("⚠️ " + _error_text(data), reply_markup=_gdewtf_panel_keyboard())
             else:
                 mods = [m for m in (data.get("mods") or []) if isinstance(m, dict)]
                 rows = [_mod_line(m) for m in mods[:45]]
-                await callback.message.answer(
+                await callback.message.edit_text(
                     f"👥 <b>Модераторы GDE.WTF · {len(mods)}</b>\n\n" + ("\n".join(rows) or "Список пуст.")[:3600],
                     reply_markup=_gdewtf_panel_keyboard(),
                 )
         elif key == "cities":
             data = await _api("GET", "/cities")
             if not data.get("ok"):
-                await callback.message.answer("⚠️ " + _error_text(data), reply_markup=_gdewtf_panel_keyboard())
+                await callback.message.edit_text("⚠️ " + _error_text(data), reply_markup=_gdewtf_panel_keyboard())
             else:
                 cities = [c for c in (data.get("cities") or []) if isinstance(c, dict)]
                 rows = [f"• <b>{_clean(c.get('name'))}</b> · <code>{_clean(c.get('id'))}</code> · команда: {_clean(c.get('team', 0))}" for c in cities[:70]]
-                await callback.message.answer(
+                await callback.message.edit_text(
                     f"🏙 <b>Города GDE.WTF · {len(cities)}</b>\n\n" + ("\n".join(rows) or "Список пуст.")[:3600],
                     reply_markup=_gdewtf_panel_keyboard(),
                 )
         elif key == "top":
             data = await _api("GET", "/mods")
             if not data.get("ok"):
-                await callback.message.answer("⚠️ " + _error_text(data), reply_markup=_gdewtf_panel_keyboard())
+                await callback.message.edit_text("⚠️ " + _error_text(data), reply_markup=_gdewtf_panel_keyboard())
             else:
                 mods = [m for m in (data.get("mods") or []) if isinstance(m, dict)]
                 mods.sort(key=lambda m: float(m.get("rating") or 0), reverse=True)
                 rows = [f"{i}. {_mod_line(m)} · рейтинг <b>{_clean(m.get('rating', 0))}</b>" for i, m in enumerate(mods[:15], 1)]
-                await callback.message.answer("🏆 <b>Рейтинг GDE.WTF</b>\n\n" + ("\n".join(rows) or "Нет данных.")[:3600], reply_markup=_gdewtf_panel_keyboard())
+                await callback.message.edit_text("🏆 <b>Рейтинг GDE.WTF</b>\n\n" + ("\n".join(rows) or "Нет данных.")[:3600], reply_markup=_gdewtf_panel_keyboard())
         elif key == "logs":
             data = await _api("GET", "/log", params={"limit": 20})
             if not data.get("ok"):
-                await callback.message.answer("⚠️ " + _error_text(data), reply_markup=_gdewtf_panel_keyboard())
+                await callback.message.edit_text("⚠️ " + _error_text(data), reply_markup=_gdewtf_panel_keyboard())
             else:
                 logs = [item for item in (data.get("log") or []) if isinstance(item, dict)]
                 rows = [f"• {_clean(item.get('act'))} · {_clean(item.get('who'))} → {_clean(item.get('target'))}\n  {_clean(item.get('detail') or item.get('reason'))}" for item in logs[:20]]
-                await callback.message.answer("📜 <b>Журнал GDE.WTF</b>\n\n" + ("\n".join(rows) or "Записей нет.")[:3600], reply_markup=_gdewtf_panel_keyboard())
+                await callback.message.edit_text("📜 <b>Журнал GDE.WTF</b>\n\n" + ("\n".join(rows) or "Записей нет.")[:3600], reply_markup=_gdewtf_panel_keyboard())
         else:
-            await callback.message.answer(_help(), reply_markup=_gdewtf_panel_keyboard())
+            await callback.message.edit_text(_help(), reply_markup=_gdewtf_panel_keyboard())
         await callback.answer()
+    except TelegramBadRequest as exc:
+        # Clicking the currently selected section can result in identical text.
+        # Telegram rejects a no-op edit; that's not a panel failure.
+        if "message is not modified" in str(exc).casefold():
+            await callback.answer()
+            return
+        log_gdewtf.warning("GDE.WTF panel edit rejected: action=%s user_id=%s error=%s", key, callback.from_user.id, str(exc)[:240])
+        await callback.answer("Не удалось обновить раздел", show_alert=True)
     except Exception:
         log_gdewtf.exception("GDE.WTF panel callback failed: action=%s user_id=%s", key, callback.from_user.id)
         await callback.answer("Ошибка панели", show_alert=True)
