@@ -7155,17 +7155,19 @@ async def owner_ping(message: Message) -> None:
                 telegram, db_result = cached[1], cached[2]
             else:
                 async def _telegram_probe() -> str:
-                    # A single Telegram request can include transient DNS/TCP/TLS or
-                    # network jitter. Take three real sequential samples over the
-                    # reused HTTP session and report their median, not the noisiest
-                    # individual request. Every sample is an actual getMe round-trip.
+                    # The first call may pay connection/DNS/TLS setup cost. Use it
+                    # only to warm the existing HTTP session, then measure three
+                    # actual getMe round-trips and report their median. This smooths
+                    # one-off connection setup spikes without fabricating a value.
                     samples: list[float] = []
                     errors: list[str] = []
-                    for _ in range(3):
+                    for sample_index in range(4):
                         started = time.perf_counter()
                         try:
                             await asyncio.wait_for(bot.get_me(), timeout=0.75)
-                            samples.append((time.perf_counter() - started) * 1000)
+                            elapsed_ms = (time.perf_counter() - started) * 1000
+                            if sample_index > 0:
+                                samples.append(elapsed_ms)
                         except asyncio.TimeoutError:
                             errors.append("тайм-аут")
                         except Exception as exc:
@@ -7173,7 +7175,7 @@ async def owner_ping(message: Message) -> None:
                     if samples:
                         ordered = sorted(samples)
                         median_ms = ordered[len(ordered) // 2]
-                        return f"{median_ms:.0f} мс · медиана 3 замеров"
+                        return f"{median_ms:.0f} мс · медиана 3 замеров после прогрева"
                     if errors and all(error == "тайм-аут" for error in errors):
                         return "тайм-аут (>750 мс)"
                     return f"ошибка ({errors[-1] if errors else 'Telegram API'})"
