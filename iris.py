@@ -680,7 +680,7 @@ async def gdewtf_command(message: Message) -> None:
         "варн", "warn", "снять", "modremove", "снятьварн", "снять-варн", "анварн", "unwarn",
         "снятьварны", "снять-варны", "warnclear", "ник", "nick", "город", "city",
         "амб", "amb", "rgov", "регион", "региональный", "назначить", "modset",
-        "бан", "ban", "разбан", "unban", "анбан", "журнал", "лог", "log",
+        "бан", "ban", "разбан", "unban", "анбан",
     }
     if action in target_actions_for_resolution and rest:
         is_warn_index = action in {"снятьварн", "снять-варн", "анварн", "unwarn"} and rest[0].isdigit() and len(rest[0]) < 7
