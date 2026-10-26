@@ -375,37 +375,65 @@ def _gdewtf_perms(profile: dict[str, Any]) -> set[str]:
         values = []
     return {v for v in values if v}
 
-async def _gdewtf_authorize(user_id: int, action: str) -> tuple[bool, str]:
-    """Resolve membership through the live GDE.WTF API.
+def _gdewtf_is_owner_or_chief(profile: dict[str, Any]) -> bool:
+    """Only project owner or chief moderator may use this bot integration.
 
-    Do not duplicate the project's permission matrix in this bot: project roles and
-    permission labels may evolve. A successful /mod lookup proves project membership;
-    every read/write endpoint remains responsible for enforcing its own API policy.
+    This is intentionally fail-closed. Ordinary admins/moderators and arbitrary
+    project members are not sufficient. Accept explicit API flags first, then
+    known role identifiers/labels as a compatibility fallback.
     """
-    now = time.monotonic()
-    cached = _GDEWTF_ACCESS_CACHE.get(user_id)
-    if cached and now - cached[0] < min(_GDEWTF_ACCESS_CACHE_TTL, 5.0):
-        profile = cached[1]
-    else:
-        response = await _api("GET", "/mod", params={"q": str(user_id)})
-        mod = response.get("mod") if isinstance(response.get("mod"), dict) else None
-        if not response.get("ok") or not mod:
-            return False, "⛔ API GDE.WTF не подтвердил твой аккаунт в проекте. Проверь привязку Telegram в moder.gde.wtf."
-        profile = mod
-        _GDEWTF_ACCESS_CACHE[user_id] = (now, profile)
-
-    # Be tolerant of the role names/permission structures returned by the project.
-    # /mod only returns a project moderator; don't reject valid Russian role labels
-    # or new permission identifiers based on a stale local allow-list.
-    if profile.get("banned") is True or profile.get("active") is False:
-        _GDEWTF_ACCESS_CACHE.pop(user_id, None)
-        return False, "⛔ У аккаунта нет активного доступа к проекту GDE.WTF."
-    has_project_identity = any(
-        profile.get(field) not in (None, "", [], {})
-        for field in ("pub", "role", "role_label", "perms", "permissions", "tg_id", "telegram_id", "user_id")
+    true_fields = (
+        "is_owner", "is_project_owner", "project_owner",
+        "is_chief", "is_chief_moderator", "chief_moderator",
     )
-    if not has_project_identity:
-        return False, "⛔ API GDE.WTF не подтвердил права аккаунта в проекте."
+    for field in true_fields:
+        value = profile.get(field)
+        if value is True or (isinstance(value, (int, str)) and str(value).strip().casefold() in {"1", "true", "yes"}):
+            return True
+
+    role_values = [
+        profile.get("role"), profile.get("role_id"), profile.get("role_key"),
+        profile.get("role_label"), profile.get("title"), profile.get("position"),
+    ]
+    for raw in role_values:
+        if raw is None:
+            continue
+        role = re.sub(r"[_-]+", " ", str(raw).strip().casefold())
+        role = re.sub(r"\\s+", " ", role)
+        if role in {
+            "owner", "project owner", "site owner", "gde owner",
+            "chief", "chief moderator", "head moderator", "главный модератор",
+            "главмод", "главный модератор проекта", "владелец", "владелец проекта",
+            "создатель проекта",
+        }:
+            return True
+    return False
+
+
+async def _gdewtf_authorize(user_id: int, action: str) -> tuple[bool, str]:
+    """Authorize exclusively from the live GDE.WTF API; deny on uncertainty."""
+    # Do not trust a local permission cache here. Rights can be revoked on
+    # moder.gde.wtf and must take effect on the very next command/button click.
+    response = await _api("GET", "/mod", params={"q": str(user_id)})
+    mod = response.get("mod") if isinstance(response.get("mod"), dict) else None
+    if not response.get("ok") or not mod:
+        return False, (
+            "⛔ API GDE.WTF не подтвердил твой аккаунт. "
+            "Доступ к боту разрешён только владельцу проекта и главному модератору."
+        )
+    if mod.get("banned") is True or mod.get("active") is False:
+        return False, "⛔ Аккаунт отключён или заблокирован в GDE.WTF."
+    if not _gdewtf_is_owner_or_chief(mod):
+        role = str(mod.get("role_label") or mod.get("role") or "обычный модератор")
+        log_gdewtf.info(
+            "Denied GDE.WTF bot access: user_id=%s role=%r action=%s",
+            user_id, role[:100], action,
+        )
+        return False, (
+            "⛔ Доступ запрещён. Использовать бота и его кнопки могут только "
+            "владелец проекта GDE.WTF и главный модератор. "
+            f"Твоя роль по API: <code>{_clean(role)}</code>."
+        )
     return True, ""
 
 
@@ -831,7 +859,6 @@ async def gdewtf_panel_callback(callback: CallbackQuery) -> None:
     try:
         # Never trust the 30-second command cache for button clicks: project access
         # may have been revoked since the menu was sent. Recheck the live GDE.WTF profile.
-        _GDEWTF_ACCESS_CACHE.pop(callback.from_user.id, None)
         authorized, denial = await _gdewtf_authorize(callback.from_user.id, auth_action)
         if not authorized:
             # Reject the callback without sending a chat message; unauthorized users
@@ -849,7 +876,7 @@ async def gdewtf_panel_callback(callback: CallbackQuery) -> None:
                 "setmod": "Ответь на сообщение: <code>!назначить [город] [права]</code> или укажи q явно.",
                 "remove": "Ответь на сообщение: <code>!снять</code> или укажи <code>!снять @username</code>.",
             }
-            await callback.message.edit_text("🛡 <b>Модерация GDE.WTF</b>\n" + examples[key])
+            await callback.message.edit_text("🛡 <b>Модерация GDE.WTF</b>\n\n" + examples[key], reply_markup=_gdewtf_panel_keyboard())
         elif key == "ping":
             data = await _api("GET", "/ping")
             output = (f"🟢 <b>GDE.WTF API доступен</b>\nМодераторов: {_clean(data.get('mods'))} · городов: {_clean(data.get('cities'))}"
