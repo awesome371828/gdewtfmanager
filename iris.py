@@ -647,18 +647,6 @@ async def gdewtf_command(message: Message) -> None:
     action = parts[1].lower()
     rest = parts[2:] if len(parts) > 2 else []
 
-    # Acknowledge slow external mutations immediately; final success/failure is
-    # still reported only after GDE.WTF responds. This keeps the chat responsive.
-    mutation_actions = {
-        "варн", "warn", "снять", "modremove", "снятьварн", "снять-варн",
-        "анварн", "unwarn", "снятьварны", "снять-варны", "warnclear",
-        "ник", "nick", "город", "city", "амб", "amb", "rgov", "регион",
-        "региональный", "назначить", "modset", "бан", "ban", "разбан",
-        "unban", "анбан",
-    }
-    if action in mutation_actions:
-        await message.answer("⏳ Команда принята. Проверяю запрос в GDE.WTF; результат пришлю отдельным сообщением.")
-
     # A reply is an unambiguous target: use the sender's Telegram ID and let
     # GDE.WTF resolve it through the project's existing Telegram account link.
     replied_user = (
@@ -929,10 +917,13 @@ async def gdewtf_command(message: Message) -> None:
             return
 
         if action in {"варн", "warn"}:
-            if len(rest) < 2:
-                await message.answer("Формат: <code>!варн @username причина</code>")
+            # Target can be supplied explicitly or injected from a replied-to
+            # Telegram message. Reason is optional; bare !варн on a reply warns
+            # the replied-to user with an empty reason.
+            if not rest:
+                await message.answer("Укажи @username/Telegram ID или ответь на сообщение участника командой <code>!варн</code>. Причина необязательна.")
                 return
-            q, reason = rest[0], " ".join(rest[1:])
+            q, reason = rest[0], " ".join(rest[1:]).strip()
             data = await _api("POST", "/warn", body={"q": q, "reason": reason, "by": f"GDE.WTF / {message.from_user.id}"})
         elif action in {"снятьварн", "снять-варн", "анварн", "unwarn"}:
             if not rest:
