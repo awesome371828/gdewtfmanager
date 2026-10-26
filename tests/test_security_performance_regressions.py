@@ -55,7 +55,7 @@ class SecurityAndPerformanceRegressions(unittest.TestCase):
         self.assertIn('p_action not in (\'bonus\', \'purchase\', \'transfer\')', SCHEMA)
 
     def test_latency_observability_is_present(self):
-        self.assertIn("Slow Supabase operation", SOURCE)
+        self.assertIn("Slow PostgreSQL operation", SOURCE)
         self.assertIn("elapsed >= 1.0", SOURCE)
         self.assertIn("Slow update handler (target <1s)", SOURCE)
 
