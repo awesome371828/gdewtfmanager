@@ -8767,7 +8767,7 @@ async def gather_cmd(message: Message) -> None:
 
 async def run_forever() -> None:
     """Keep the bot process alive through transient startup/polling failures."""
-    global bot
+    global bot, _API_SESSION
     # PostgreSQL's Python SDK is synchronous, so handlers use asyncio.to_thread().
     # On a 4-vCPU host Python's default executor may have only 8 workers; a burst
     # of DB-backed commands can queue behind slow network I/O and inflate latency.
@@ -8808,7 +8808,6 @@ async def run_forever() -> None:
             delay = min(60.0, 2.0 ** min(failures, 5))
             log.exception("Bot main loop crashed; restarting in %.0fs", delay)
         finally:
-            global _API_SESSION
             try:
                 if _API_SESSION is not None and not _API_SESSION.closed:
                     await _API_SESSION.close()
