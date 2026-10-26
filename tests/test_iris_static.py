@@ -445,5 +445,19 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn('global_scope = arg.startswith(("все чаты"', self.source)
 
 
+    def test_gdewtf_panel_and_reply_targets_are_supported(self):
+        start = self.source.index("def _help() -> str:")
+        end = self.source.index("if not BOT_TOKEN:", start)
+        body = self.source[start:end]
+        self.assertIn("def _gdewtf_panel_keyboard()", body)
+        self.assertIn('callback_data="gdepanel:mods"', body)
+        self.assertIn("async def gdewtf_panel_callback", body)
+        self.assertIn('{"панель", "panel", "меню"}', body)
+        self.assertIn("message.reply_to_message.from_user", body)
+        self.assertIn('"журнал", "лог", "log"', body)
+        self.assertIn('"снятьварны", "снять-варны", "warnclear"', body)
+        self.assertIn('body={"q": q, "reason": reason, "by":', body)
+
+
 if __name__ == "__main__":
     unittest.main()
