@@ -101,6 +101,16 @@ class SecurityAndPerformanceRegressions(unittest.TestCase):
         self.assertNotIn("async def main() -> None:\n    acquire_single_instance_lock()", SOURCE)
         self.assertIn("acquire_single_instance_lock()\n    failures = 0", SOURCE)
 
+    def test_runtime_build_runs_regression_tests_and_cleans_api_session(self):
+        dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+        dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+        self.assertIn("python -m unittest discover -s tests -v", dockerfile)
+        self.assertIn("COPY tests ./tests", dockerfile)
+        self.assertNotIn("tests", dockerignore)
+        self.assertIn("await _API_SESSION.close()", SOURCE)
+        self.assertIn("stop_for_polling_conflict = True", SOURCE)
+        self.assertIn("Exiting with code 23", SOURCE)
+
 
 if __name__ == "__main__":
     unittest.main()
