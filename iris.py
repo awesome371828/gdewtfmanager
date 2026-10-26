@@ -361,7 +361,7 @@ def _help() -> str:
         "<code>!варны q</code> · <code>!журнал [q] [кол-во]</code> · <code>!поиск слово</code>\n"
         "<code>!модераторы [city_id]</code> · <code>!города</code> · <code>!топ [city_id]</code> · <code>!ping</code>\n\n"
         "<b>Модерация</b>\n"
-        "<code>!варн q причина</code> · <code>!снятьварн [q] [номер]</code> · <code>!снятьварны q</code>\n"
+        "<code>!варн q [причина]</code> · <code>!снятьварн [q] [номер]</code> · <code>!снятьварны q</code>\n"
         "<code>!бан q [причина]</code> · <code>!разбан q</code> / <code>!анбан q</code> · <code>!снять q</code>\n\n"
         "<b>Управление командой</b>\n"
         "<code>!назначить q [город] [права]</code> · <code>!ник q новый_ник</code> / <code>!ник q -</code>\n"
