@@ -16,10 +16,12 @@ RUN python -m pip install --upgrade pip \
 
 # Copy every local module imported by the application, including PostgreSQL adapter.
 COPY iris.py moderation_full.py pear_core.py postgres_adapter.py schema.sql entrypoint.sh ./
+COPY tests ./tests
 RUN chmod +x /app/entrypoint.sh
 
-# Fail the image build early if a runtime module is missing or has syntax errors.
-RUN python -m py_compile iris.py moderation_full.py pear_core.py postgres_adapter.py
+# Fail the image build early on syntax errors and regression-test failures.
+RUN python -m py_compile iris.py moderation_full.py pear_core.py postgres_adapter.py \
+    && python -m unittest discover -s tests -v
 
 # Run the bot directly. Docker's restart policy handles process/host restarts.
 CMD ["/app/entrypoint.sh"]
