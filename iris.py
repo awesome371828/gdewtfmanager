@@ -7155,14 +7155,28 @@ async def owner_ping(message: Message) -> None:
                 telegram, db_result = cached[1], cached[2]
             else:
                 async def _telegram_probe() -> str:
-                    started = time.perf_counter()
-                    try:
-                        await asyncio.wait_for(bot.get_me(), timeout=0.75)
-                        return f"{(time.perf_counter()-started)*1000:.0f} мс"
-                    except asyncio.TimeoutError:
+                    # A single Telegram request can include transient DNS/TCP/TLS or
+                    # network jitter. Take three real sequential samples over the
+                    # reused HTTP session and report their median, not the noisiest
+                    # individual request. Every sample is an actual getMe round-trip.
+                    samples: list[float] = []
+                    errors: list[str] = []
+                    for _ in range(3):
+                        started = time.perf_counter()
+                        try:
+                            await asyncio.wait_for(bot.get_me(), timeout=0.75)
+                            samples.append((time.perf_counter() - started) * 1000)
+                        except asyncio.TimeoutError:
+                            errors.append("тайм-аут")
+                        except Exception as exc:
+                            errors.append(type(exc).__name__)
+                    if samples:
+                        ordered = sorted(samples)
+                        median_ms = ordered[len(ordered) // 2]
+                        return f"{median_ms:.0f} мс · медиана 3 замеров"
+                    if errors and all(error == "тайм-аут" for error in errors):
                         return "тайм-аут (>750 мс)"
-                    except Exception as exc:
-                        return f"ошибка ({type(exc).__name__})"
+                    return f"ошибка ({errors[-1] if errors else 'Telegram API'})"
 
                 async def _PostgreSQL_probe() -> str:
                     if db is None:
