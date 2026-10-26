@@ -485,6 +485,18 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn('await callback.answer("⛔ Нет прав в проекте GDE.WTF", show_alert=True)', callback)
 
 
+    def test_gdewtf_authorization_rejects_recycled_username_identity(self):
+        start = self.source.index("def _gdewtf_profile_matches_telegram(")
+        end = self.source.index("\n\ndef _gdewtf_is_owner_or_chief(", start)
+        matcher = self.source[start:end]
+        self.assertIn("if explicit_ids:", matcher)
+        self.assertIn("return str(user_id) in explicit_ids", matcher)
+        auth_start = self.source.index("async def _gdewtf_authorize(")
+        auth_end = self.source.index("\n\nasync def _gdewtf_safe_answer", auth_start)
+        auth = self.source[auth_start:auth_end]
+        self.assertIn("telegram_identity_mismatch", auth)
+        self.assertIn("if explicit_ids and str(user_id) not in explicit_ids:", auth)
+
     def test_gdewtf_bot_is_restricted_to_live_api_project_owner_or_chief(self):
         helper_start = self.source.index("def _gdewtf_is_owner_or_chief(")
         helper_end = self.source.index("\n\nasync def _gdewtf_authorize(", helper_start)
