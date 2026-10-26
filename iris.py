@@ -317,34 +317,33 @@ def _gdewtf_people_count(data: dict[str, Any]) -> int | None:
 
 
 async def _gdewtf_fetch_people_count() -> tuple[int | None, str | None]:
-    """Try documented project stats surfaces without fabricating a count."""
+    """Return only a total the documented API actually provides; never guess."""
     ping = await _api("GET", "/ping")
-    count = _gdewtf_people_count(ping) if ping.get("ok") else None
+    if not ping.get("ok"):
+        return None, _error_text(ping)
+
+    count = _gdewtf_people_count(ping)
     if count is not None:
         return count, None
 
-    last_error = _error_text(ping) if not ping.get("ok") else None
-    # These are read-only compatibility endpoints supported by some API builds.
-    # Probe them concurrently: serial timeouts could stall !люди for 32 seconds.
-    probe_timeout = aiohttp.ClientTimeout(total=4, connect=1.5, sock_read=3)
-    endpoints = ("/stats", "/people", "/users")
-    results = await asyncio.gather(
-        *(_api("GET", endpoint, request_timeout=probe_timeout) for endpoint in endpoints),
-        return_exceptions=True,
+    # The documented moderator API exposes /ping, /mods and /cities, but does
+    # not document a project-wide people-count endpoint. Do not probe guessed
+    # routes (/stats, /people, /users): that creates extra timeouts and can turn
+    # an unsupported HTML/404 response into a misleading "unexpected format".
+    available: list[str] = []
+    mods_count = ping.get("mods")
+    cities_count = ping.get("cities")
+    if isinstance(mods_count, (int, str)) and str(mods_count).isdigit():
+        available.append(f"модераторов: {int(mods_count)}")
+    if isinstance(cities_count, (int, str)) and str(cities_count).isdigit():
+        available.append(f"городов: {int(cities_count)}")
+    detail = (
+        "Доступный API GDE.WTF не возвращает общее число всех участников; "
+        "поддерживаемого метода для этого показателя нет."
     )
-    for endpoint, result in zip(endpoints, results):
-        if isinstance(result, BaseException):
-            last_error = f"{endpoint}: {type(result).__name__}"
-            continue
-        if not result.get("ok"):
-            last_error = _error_text(result)
-            continue
-        count = _gdewtf_people_count(result)
-        if count is not None:
-            return count, None
-        last_error = "API ответил, но не вернул общее количество пользователей."
-    return None, last_error or "API не предоставил статистику пользователей."
-
+    if available:
+        detail += " При этом API сообщает " + ", ".join(available) + "."
+    return None, detail
 
 def _profile(mod: dict[str, Any]) -> str:
     warns = mod.get("warns") or []
