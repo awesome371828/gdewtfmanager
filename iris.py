@@ -562,48 +562,71 @@ def _gdewtf_is_owner_or_chief(profile: dict[str, Any]) -> bool:
 
 
 async def _gdewtf_authorize(user_id: int, action: str, username: str | None = None) -> tuple[bool, str]:
-    """Resolve Telegram identity to GDE.WTF profile and check its project permissions."""
+    """Resolve Telegram identity and check live project-owner/chief permissions."""
     queries = [str(user_id)]
     if username:
         queries.append("@" + username.lstrip("@"))
-    mod: dict[str, Any] | None = None
-    api_errors: list[str] = []
+    # A live check is required for every command, but ID and username lookups are
+    # independent. Run them together so a missing ID lookup does not add another
+    # full network timeout before the username lookup.
     for query in queries:
         _GDEWTF_API_CACHE.pop(_gdewtf_cache_key("/mod", {"q": query}), None)
-        response = await _api("GET", "/mod", params={"q": query})
+    responses = await asyncio.gather(
+        *(_api("GET", "/mod", params={"q": query}) for query in queries),
+        return_exceptions=True,
+    )
+    mod: dict[str, Any] | None = None
+    api_errors: list[str] = []
+    transport_failure: dict[str, Any] | None = None
+    for query, response in zip(queries, responses):
+        if isinstance(response, BaseException):
+            api_errors.append(f"{query}:{type(response).__name__}")
+            continue
         candidate = response.get("mod") if isinstance(response.get("mod"), dict) else None
         if response.get("ok") and candidate:
-            # /mod?q is the API's explicit identity lookup. Some API versions
-            # return no Telegram ID in the profile, so requiring an echoed ID
-            # would reject a valid exact lookup. Prefer numeric Telegram ID,
-            # then username; directory matching below remains strict.
             mod = candidate
             break
-        else:
-            api_errors.append(f"{query}:{response.get('error', 'not_found')}")
+        error = str(response.get("error") or ("not_found" if response.get("ok") else "unknown_error"))
+        api_errors.append(f"{query}:{error}")
+        if error in {"api_unavailable", "unauthorized", "invalid_api_response"}:
+            transport_failure = response
 
-    if mod is None:
-        # Fallback: locate the Telegram account in the moderator directory and
-        # use the matched profile's RND pub/code for subsequent project actions.
+    if mod is None and transport_failure is None:
+        # Only query the directory when the direct lookups returned no profile.
+        # A network/auth failure is not evidence that a user is unlinked.
         _GDEWTF_API_CACHE.pop(_gdewtf_cache_key("/mods", {}), None)
-        directory = await _api("GET", "/mods")
-        entries: list[Any] = []
-        for key in ("mods", "moderators", "items", "results", "data"):
-            value = directory.get(key)
-            if isinstance(value, list):
-                entries.extend(value)
-            elif isinstance(value, dict):
-                for nested_key in ("mods", "moderators", "items", "results"):
-                    if isinstance(value.get(nested_key), list):
-                        entries.extend(value[nested_key])
-        for candidate in entries:
-            if isinstance(candidate, dict) and _gdewtf_profile_matches_telegram(candidate, user_id, username):
-                mod = candidate
-                break
+        directory = await _api(
+            "GET", "/mods",
+            request_timeout=aiohttp.ClientTimeout(total=5, connect=2, sock_read=4),
+        )
+        if not directory.get("ok"):
+            transport_failure = directory
+        else:
+            entries: list[Any] = []
+            for key in ("mods", "moderators", "items", "results", "data"):
+                value = directory.get(key)
+                if isinstance(value, list):
+                    entries.extend(value)
+                elif isinstance(value, dict):
+                    for nested_key in ("mods", "moderators", "items", "results"):
+                        if isinstance(value.get(nested_key), list):
+                            entries.extend(value[nested_key])
+            for candidate in entries:
+                if isinstance(candidate, dict) and _gdewtf_profile_matches_telegram(candidate, user_id, username):
+                    mod = candidate
+                    break
 
+    if transport_failure is not None and mod is None:
+        log_gdewtf.warning(
+            "GDE.WTF authorization lookup unavailable: telegram_id=%s action=%s errors=%s",
+            user_id, action, ";".join(api_errors)[:400],
+        )
+        return False, "⚠️ " + _error_text(transport_failure)
     if not mod:
-        log_gdewtf.info("GDE.WTF identity not linked: telegram_id=%s username=%r action=%s api=%s",
-                        user_id, username, action, ";".join(api_errors)[:500])
+        log_gdewtf.info(
+            "GDE.WTF identity not linked: telegram_id=%s username=%r action=%s api=%s",
+            user_id, username, action, ";".join(api_errors)[:500],
+        )
         return False, (
             "⛔ Не удалось найти профиль GDE.WTF для твоего Telegram. "
             "Проверены Telegram ID, username и список модераторов. "
@@ -614,15 +637,16 @@ async def _gdewtf_authorize(user_id: int, action: str, username: str | None = No
     if not _gdewtf_is_owner_or_chief(mod):
         role = str(mod.get("role_label") or mod.get("role") or mod.get("role_id") or "не указана")
         pub = str(mod.get("pub") or mod.get("public_code") or mod.get("rnd_code") or mod.get("code") or "не найден")
-        log_gdewtf.info("Denied GDE.WTF access: telegram_id=%s pub=%r role=%r perms=%r action=%s",
-                        user_id, pub[:80], role[:100], mod.get("perms") or mod.get("permissions"), action)
+        log_gdewtf.info(
+            "Denied GDE.WTF access: telegram_id=%s pub=%r role=%r perms=%r action=%s",
+            user_id, pub[:80], role[:100], mod.get("perms") or mod.get("permissions"), action,
+        )
         return False, (
             "⛔ Доступ запрещён: профиль найден, но API не подтвердил права владельца проекта "
             "или главного модератора.\n"
             f"Код профиля: <code>{_clean(pub)}</code> · роль: <code>{_clean(role)}</code>."
         )
     return True, ""
-
 
 async def _gdewtf_safe_answer(message: Message, *args: Any, **kwargs: Any) -> bool:
     """Send a bot reply without turning Telegram transport hiccups into command crashes."""
