@@ -557,18 +557,18 @@ async def gdewtf_command(message: Message) -> None:
             count, problem = await _gdewtf_fetch_people_count()
             if count is None:
                 await message.answer(
-                    "⚠️ <b>Статистика участников GDE.WTF</b>\\n"
-                    "API не предоставил общее количество людей.\\n"
+                    "⚠️ <b>Статистика участников GDE.WTF</b>\n"
+                    "API не предоставил общее количество людей.\n"
                     f"<i>{_clean(problem or 'Нет данных')}</i>"
                 )
             else:
                 digits = f"{count:,}".replace(",", " ")
                 await message.answer(
-                    "🌐 <b>GDE.WTF · статистика проекта</b>\\n"
-                    "━━━━━━━━━━━━━━━━━━━━\\n"
-                    "👤 <b>Всего участников</b>\\n"
-                    f"　<code>{digits}</code> человек\\n"
-                    "━━━━━━━━━━━━━━━━━━━━\\n"
+                    "🌐 <b>GDE.WTF · статистика проекта</b>\n"
+                    "━━━━━━━━━━━━━━━━━━━━\n"
+                    "👤 <b>Всего участников</b>\n"
+                    f"　<code>{digits}</code> человек\n"
+                    "━━━━━━━━━━━━━━━━━━━━\n"
                     "📊 Данные получены через API проекта."
                 )
             return
@@ -955,18 +955,18 @@ async def gdewtf_panel_callback(callback: CallbackQuery) -> None:
             count, problem = await _gdewtf_fetch_people_count()
             if count is None:
                 output = (
-                    "⚠️ <b>Статистика участников GDE.WTF</b>\\n"
-                    "API не предоставил общее количество людей.\\n"
+                    "⚠️ <b>Статистика участников GDE.WTF</b>\n"
+                    "API не предоставил общее количество людей.\n"
                     f"<i>{_clean(problem or 'Нет данных')}</i>"
                 )
             else:
                 digits = f"{count:,}".replace(",", " ")
                 output = (
-                    "🌐 <b>GDE.WTF · статистика проекта</b>\\n"
-                    "━━━━━━━━━━━━━━━━━━━━\\n"
-                    "👤 <b>Всего участников</b>\\n"
-                    f"　<code>{digits}</code> человек\\n"
-                    "━━━━━━━━━━━━━━━━━━━━\\n"
+                    "🌐 <b>GDE.WTF · статистика проекта</b>\n"
+                    "━━━━━━━━━━━━━━━━━━━━\n"
+                    "👤 <b>Всего участников</b>\n"
+                    f"　<code>{digits}</code> человек\n"
+                    "━━━━━━━━━━━━━━━━━━━━\n"
                     "📊 Данные получены через API проекта."
                 )
             await callback.message.edit_text(output, reply_markup=_gdewtf_panel_keyboard())
