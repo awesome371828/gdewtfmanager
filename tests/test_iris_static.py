@@ -474,5 +474,27 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn('await callback.answer("⛔ Нет прав в проекте GDE.WTF", show_alert=True)', callback)
 
 
+    def test_gdewtf_bot_is_restricted_to_live_api_project_owner_or_chief(self):
+        helper_start = self.source.index("def _gdewtf_is_owner_or_chief(")
+        helper_end = self.source.index("\n\nasync def _gdewtf_authorize(", helper_start)
+        helper = self.source[helper_start:helper_end]
+        for flag in ("is_owner", "is_project_owner", "is_chief", "is_chief_moderator"):
+            self.assertIn(flag, helper)
+        self.assertIn('"главный модератор"', helper)
+        self.assertIn('"владелец проекта"', helper)
+        self.assertNotIn('"is_admin",', helper)
+        auth_start = self.source.index("async def _gdewtf_authorize(")
+        auth_end = self.source.index("\n\n@gdewtf_router.message", auth_start)
+        auth = self.source[auth_start:auth_end]
+        self.assertIn('await _api("GET", "/mod", params={"q": str(user_id)})', auth)
+        self.assertIn("_gdewtf_is_owner_or_chief(mod)", auth)
+        self.assertNotIn("_GDEWTF_ACCESS_CACHE", auth)
+        callback_start = self.source.index('@gdewtf_router.callback_query(F.data.startswith("gdepanel:"))')
+        callback_end = self.source.index("\n\nif not BOT_TOKEN", callback_start)
+        callback = self.source[callback_start:callback_end]
+        self.assertIn("await _gdewtf_authorize(callback.from_user.id, auth_action)", callback)
+        self.assertIn('reply_markup=_gdewtf_panel_keyboard()', callback)
+
+
 if __name__ == "__main__":
     unittest.main()
