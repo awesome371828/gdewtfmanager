@@ -20,6 +20,7 @@ import os
 import re
 import time
 import threading
+import signal
 from concurrent.futures import ThreadPoolExecutor
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
@@ -7842,7 +7843,7 @@ async def _worker_watchdog(
 
 async def main() -> None:
     global _SCHEMA_PROBLEMS
-    log.info("GDE.WTF build tag: call-one-message-timeout-20261026-r1")
+    log.info("GDE.WTF build tag: graceful-signal-shutdown-20261026-r2")
     # Do not change Telegram bot profile fields on every process start. Telegram
     # rate-limits setMyName/setMyDescription; branding should be configured once
     # manually, not repeated during host restarts/deployments.
@@ -8018,11 +8019,15 @@ async def main() -> None:
                 # Bound concurrent update handlers. An unlimited backlog can fan out
                 # hundreds of handlers at once, burst Telegram replies, exhaust DB
                 # connections and make the bot appear frozen.
+                if _SHUTDOWN_EVENT is not None and _SHUTDOWN_EVENT.is_set():
+                    log.info("Shutdown requested before polling; skipping startup of long polling")
+                    return
                 await dp.start_polling(
                     bot,
                     allowed_updates=dp.resolve_used_update_types(),
                     tasks_concurrency_limit=24,
                     polling_timeout=25,
+                    handle_signals=False,
                 )
                 break
             except TelegramConflictError as exc:
@@ -8841,8 +8846,8 @@ async def gather_cmd(message: Message) -> None:
 
 
 async def run_forever() -> None:
-    """Keep the bot process alive through transient startup/polling failures."""
-    global bot, _API_SESSION
+    """Restart after transient failures, but exit cleanly on host SIGTERM/SIGINT."""
+    global bot, _API_SESSION, _SHUTDOWN_EVENT
     # PostgreSQL's Python SDK is synchronous, so handlers use asyncio.to_thread().
     # On a 4-vCPU host Python's default executor may have only 8 workers; a burst
     # of DB-backed commands can queue behind slow network I/O and inflate latency.
@@ -8853,6 +8858,29 @@ async def run_forever() -> None:
         ThreadPoolExecutor(max_workers=48, thread_name_prefix="pear-io")
     )
     log.info("Async I/O thread pool configured: max_workers=48")
+    _SHUTDOWN_EVENT = asyncio.Event()
+
+    async def _stop_polling_for_shutdown() -> None:
+        # aiogram's built-in signal handler is disabled below so the process can
+        # distinguish a host-requested shutdown from an unexpected polling exit.
+        try:
+            await dp.stop_polling()
+        except RuntimeError:
+            # A signal may arrive during startup, before polling begins. The event
+            # is checked before start_polling, so no polling loop will be launched.
+            pass
+
+    def _request_shutdown() -> None:
+        if _SHUTDOWN_EVENT is not None:
+            _SHUTDOWN_EVENT.set()
+        asyncio.create_task(_stop_polling_for_shutdown(), name="pear-signal-shutdown")
+
+    for _sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(_sig, _request_shutdown)
+        except (NotImplementedError, RuntimeError):
+            log.warning("Could not register event-loop handler for %s", _sig.name)
+
     # Acquire once for the lifetime of this process; do not reacquire flock on restarts.
     acquire_single_instance_lock()
     failures = 0
@@ -8861,6 +8889,9 @@ async def run_forever() -> None:
         stop_for_polling_conflict = False
         try:
             await main()
+            if _SHUTDOWN_EVENT.is_set():
+                log.info("Shutdown signal received; bot stopped cleanly")
+                return
             failures = 0
             log.error("Telegram polling stopped unexpectedly; restarting in %.0fs", delay)
         except asyncio.CancelledError:
