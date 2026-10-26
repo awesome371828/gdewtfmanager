@@ -6645,7 +6645,7 @@ async def owner_logs(message: Message) -> None:
     if not rows:
         await message.answer("Логи пока пусты или таблица bot_audit недоступна.")
         return
-    lines=[]
+    entries=[]
     for row in rows:
         created = row.get("created_at")
         stamp = str(created or "время неизвестно")
@@ -6653,9 +6653,41 @@ async def owner_logs(message: Message) -> None:
             stamp = format_moscow_time(datetime.fromisoformat(stamp.replace("Z", "+00:00")))
         except Exception:
             pass
-        detail = (row.get("details") or "—").replace("<", "&lt;").replace(">", "&gt;")[:150]
-        lines.append(f"• <code>{stamp}</code> · <b>{row.get('action','?')}</b> · actor <code>{row.get('actor_id','?')}</code> · target <code>{row.get('target_id') or '—'}</code>\n  {detail}")
-    await message.answer("<b>📜 Последние события</b>\n" + "\n".join(lines))
+        # Escape the complete value before inserting it into Telegram HTML.
+        detail = escape(str(row.get("details") or "—")[:150])
+        action = escape(str(row.get("action") or "?"))
+        actor_id = escape(str(row.get("actor_id") or "?"))
+        target_id = escape(str(row.get("target_id") or "—"))
+        entries.append(
+            f"• <code>{escape(stamp)}</code> · <b>{action}</b> · "
+            f"actor <code>{actor_id}</code> · target <code>{target_id}</code>\n  {detail}"
+        )
+
+    # Telegram limits a message to 4096 characters. Keep each chunk well below
+    # that limit and never split an individual audit event across messages.
+    chunks: list[list[str]] = []
+    current: list[str] = []
+    for entry in entries:
+        candidate = "\n\n".join((*current, entry))
+        if current and len(candidate) > 3400:
+            chunks.append(current)
+            current = [entry]
+        else:
+            current.append(entry)
+    if current:
+        chunks.append(current)
+
+    total = len(chunks)
+    for index, chunk in enumerate(chunks, start=1):
+        heading = (
+            "<b>📜 Последние события</b>"
+            if total == 1
+            else f"<b>📜 Последние события · часть {index}/{total}</b>"
+        )
+        await message.answer(
+            heading + "\n\n" + "\n\n".join(chunk),
+            disable_web_page_preview=True,
+        )
 
 @router.message(Command("audit"))
 @router.message(F.text.regexp(r"(?i)^\s*аудит\s+\d+\s*$"))
