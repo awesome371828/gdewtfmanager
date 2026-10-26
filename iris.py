@@ -729,9 +729,11 @@ if SUPABASE_URL and SUPABASE_KEY:
 else:
     raise RuntimeError("Запуск без постоянной БД запрещён: не заданы SUPABASE_URL и SUPABASE_SERVICE_KEY. Проверь переменные окружения RelaxDev.")
 
-# Ordinary Telegram API requests should fail fast on a broken network path.
-# The dispatcher passes an explicit timeout to getUpdates; preserve that timeout.
-_TELEGRAM_API_TIMEOUT = 4
+# Telegram API calls can occasionally take several seconds on the hosting network.
+# A 4-second timeout was too aggressive: ordinary replies such as /start failed
+# during brief routing/TLS stalls. Keep polling's 35s session timeout separate,
+# and allow regular API methods up to 15s before aiogram reports a network error.
+_TELEGRAM_API_TIMEOUT = 15
 
 class LowLatencyBot(Bot):
     async def __call__(self, method, request_timeout=None):
@@ -7163,7 +7165,7 @@ async def _worker_watchdog(
 
 async def main() -> None:
     global _SCHEMA_PROBLEMS
-    log.info("GDE.WTF build tag: nickname-safe-20261022-r3")
+    log.info("GDE.WTF build tag: call-one-message-timeout-20261026-r1")
     # Do not change Telegram bot profile fields on every process start. Telegram
     # rate-limits setMyName/setMyDescription; branding should be configured once
     # manually, not repeated during host restarts/deployments.
