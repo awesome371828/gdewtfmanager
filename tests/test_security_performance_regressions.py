@@ -97,7 +97,9 @@ class SecurityAndPerformanceRegressions(unittest.TestCase):
         self.assertIn("async def run_forever() -> None:", SOURCE)
         self.assertIn("await main()", SOURCE)
         self.assertIn('log.exception("Bot main loop crashed; restarting in %.0fs", delay)', SOURCE)
-        self.assertIn("bot = Bot(BOT_TOKEN, default=DefaultBotProperties(", SOURCE)
+        self.assertIn("bot = LowLatencyBot(", SOURCE)
+        self.assertIn("BOT_TOKEN,", SOURCE)
+        self.assertIn("default=DefaultBotProperties(", SOURCE)
         self.assertNotIn("async def main() -> None:\n    acquire_single_instance_lock()", SOURCE)
         self.assertIn("acquire_single_instance_lock()\n    failures = 0", SOURCE)
 
