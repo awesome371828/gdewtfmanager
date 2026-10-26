@@ -203,9 +203,10 @@ class PearCMStaticRegressionTests(unittest.TestCase):
     def test_polling_conflicts_stop_the_restart_loop(self):
         self.assertIn("except TelegramConflictError", self.source)
         self.assertIn("raise SystemExit(23)", self.source)
-        workflow = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")
-        self.assertIn('elif [ "$code" -eq 23 ]', workflow)
-        self.assertIn("stopping instead of restarting forever", workflow)
+        entrypoint = (ROOT / "entrypoint.sh").read_text(encoding="utf-8")
+        self.assertIn('if [ "$code" -eq 23 ]', entrypoint)
+        self.assertIn("Exiting to avoid a restart loop", entrypoint)
+        self.assertNotIn("Retrying in 60s", entrypoint)
 
     def test_moderation_protects_chat_creator_and_telegram_admins(self):
         self.assertIn("async def ensure_moderation_target_safe", self.source)
@@ -456,7 +457,10 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn("message.reply_to_message.from_user", body)
         self.assertIn('"журнал", "лог", "log"', body)
         self.assertIn('"снятьварны", "снять-варны", "warnclear"', body)
-        self.assertIn('body={"q": q, "reason": reason, "by":', body)
+        self.assertIn('body={"q": q, "reason": api_reason, "by":', body)
+        self.assertIn('api_reason = reason or "Выдал варн"', body)
+        self.assertIn('verified_after_timeout', body)
+        self.assertIn('await _gdewtf_safe_answer(message,', body)
 
     def test_gdewtf_panel_edits_existing_message_and_uses_api_membership(self):
         start = self.source.index("async def _gdewtf_authorize(")
@@ -492,7 +496,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         callback_start = self.source.index('@gdewtf_router.callback_query(F.data.startswith("gdepanel:"))')
         callback_end = self.source.index("\n\nif not BOT_TOKEN", callback_start)
         callback = self.source[callback_start:callback_end]
-        self.assertIn("await _gdewtf_authorize(callback.from_user.id, auth_action)", callback)
+        self.assertIn("await _gdewtf_authorize(callback.from_user.id, auth_action, callback.from_user.username)", callback)
         self.assertIn('reply_markup=_gdewtf_panel_keyboard()', callback)
 
 
