@@ -88,7 +88,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn(r"^@[A-Za-z0-9_]{5,32}\s+", helper)
         self.assertIn('"reason": _clean_warning_reason(details)', self.source)
         warns_start = self.source.index("async def chat_warns")
-        warns_end = self.source.index('@router.message(F.text == "💍 Брак")', warns_start)
+        warns_end = self.source.index('@router.message(F.text == "🛡 Кто админ")', warns_start)
         warns_body = self.source[warns_start:warns_end]
         self.assertIn("actor_name = custom_names.get(actor_id) or names.get(actor_id)", warns_body)
         self.assertIn("profile_link(actor_id, actor_name)", warns_body)
@@ -106,7 +106,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn("async def filter_current_chat_members", self.source)
         self.assertIn("ChatMemberStatus.LEFT, ChatMemberStatus.KICKED", self.source)
         warns_start = self.source.index("async def chat_warns")
-        warns_end = self.source.index('@router.message(F.text == "💍 Брак")', warns_start)
+        warns_end = self.source.index('@router.message(F.text == "🛡 Кто админ")', warns_start)
         warns_body = self.source[warns_start:warns_end]
         self.assertIn("filter_current_chat_members", warns_body)
         self.assertIn("profile_link(uid, display_name)", warns_body)
