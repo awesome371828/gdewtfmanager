@@ -178,7 +178,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
             "_ACTIVITY_OVERFLOW_MAX = 20000",
             "async def _drain_activity_queue",
             "_ACTIVITY_WRITER_BUSY = False",
-            "Temporary Supabase",
+            "Temporary PostgreSQL",
         ):
             self.assertIn(fragment, self.source)
 
@@ -413,15 +413,16 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn("CommandRateLimitMiddleware", self.source)
         self.assertIn("command_match = re.match", self.source)
 
-    def test_service_role_key_is_required_and_public_key_fallback_is_disabled(self):
-        config = self.source[self.source.index("SUPABASE_URL ="):self.source.index("LOG_LEVEL =")]
-        self.assertIn('os.getenv("SUPABASE_SERVICE_KEY", "").strip()', config)
-        self.assertNotIn("SUPABASE_ANON", config)
-        self.assertNotIn("SUPABASE_PUBL", config)
+    def test_postgresql_url_is_required_and_supabase_is_removed(self):
+        config = self.source[self.source.index("DATABASE_URL ="):self.source.index("LOG_LEVEL =")]
+        self.assertIn('os.getenv("DATABASE_URL", "").strip()', config)
+        self.assertNotIn("SUPABASE_URL", self.source)
+        self.assertNotIn("SUPABASE_SERVICE_KEY", self.source)
+        self.assertIn("postgres_adapter", self.source)
         self.assertIn("Запуск без постоянной БД запрещён", self.source)
 
     def test_slow_database_operations_and_one_second_handlers_are_observable(self):
-        self.assertIn("Slow Supabase operation", self.source)
+        self.assertIn("Slow PostgreSQL operation", self.source)
         self.assertIn("elapsed >= 1.0", self.source)
         self.assertIn("Slow update handler (target <1s)", self.source)
 
