@@ -420,70 +420,132 @@ def _gdewtf_perms(profile: dict[str, Any]) -> set[str]:
         values = []
     return {v for v in values if v}
 
-def _gdewtf_is_owner_or_chief(profile: dict[str, Any]) -> bool:
-    """Only project owner or chief moderator may use this bot integration.
+def _gdewtf_profile_identity_values(profile: dict[str, Any]) -> set[str]:
+    """Identity aliases accepted by the GDE.WTF API, including RND public codes."""
+    keys = {
+        "id", "tg_id", "telegram_id", "user_id", "telegram_user_id",
+        "username", "telegram_username", "login", "pub", "public_code",
+        "rnd", "rnd_code", "code",
+    }
+    values: set[str] = set()
+    def walk(obj: Any, depth: int = 0) -> None:
+        if depth > 3 or not isinstance(obj, dict):
+            return
+        for key, value in obj.items():
+            normalized = str(key).strip().casefold()
+            if normalized in keys and value is not None and not isinstance(value, (dict, list)):
+                raw = str(value).strip().casefold()
+                if raw:
+                    values.add(raw)
+                    values.add(raw.lstrip("@"))
+            elif isinstance(value, dict):
+                walk(value, depth + 1)
+    walk(profile)
+    return values
 
-    This is intentionally fail-closed. Ordinary admins/moderators and arbitrary
-    project members are not sufficient. Accept explicit API flags first, then
-    known role identifiers/labels as a compatibility fallback.
-    """
-    true_fields = (
-        "is_owner", "is_project_owner", "project_owner",
-        "is_chief", "is_chief_moderator", "chief_moderator",
-    )
-    for field in true_fields:
+
+def _gdewtf_profile_matches_telegram(profile: dict[str, Any], user_id: int, username: str | None) -> bool:
+    values = _gdewtf_profile_identity_values(profile)
+    if str(user_id) in values:
+        return True
+    return bool(username and username.strip().casefold().lstrip("@") in values)
+
+
+def _gdewtf_is_owner_or_chief(profile: dict[str, Any]) -> bool:
+    """Allow only explicit project-owner/chief flags, role identifiers, or permission codes."""
+    for field in ("is_owner", "is_project_owner", "project_owner", "is_chief",
+                  "is_chief_moderator", "chief_moderator", "is_head_moderator",
+                  "is_project_chief"):
         value = profile.get(field)
         if value is True or (isinstance(value, (int, str)) and str(value).strip().casefold() in {"1", "true", "yes"}):
             return True
-
-    role_values = [
-        profile.get("role"), profile.get("role_id"), profile.get("role_key"),
-        profile.get("role_label"), profile.get("title"), profile.get("position"),
-    ]
-    for raw in role_values:
+    roles = (profile.get(k) for k in ("role", "role_id", "role_key", "role_label", "title", "position", "rank", "type"))
+    markers = ("owner", "project owner", "site owner", "chief", "chief moderator",
+               "head moderator", "главный модератор", "главмод", "владелец проекта",
+               "создатель проекта")
+    for raw in roles:
         if raw is None:
             continue
         role = re.sub(r"[_-]+", " ", str(raw).strip().casefold())
-        role = re.sub(r"\\s+", " ", role)
-        if role in {
-            "owner", "project owner", "site owner", "gde owner",
-            "chief", "chief moderator", "head moderator", "главный модератор",
-            "главмод", "главный модератор проекта", "владелец", "владелец проекта",
-            "создатель проекта",
-        } or any(marker in role for marker in (
-            "главный модератор", "chief moderator", "head moderator",
-            "project owner", "владелец проекта", "создатель проекта",
-        )):
+        role = re.sub(r"\s+", " ", role)
+        if role in {"владелец", "owner", "chief", "главмод"} or any(m in role for m in markers):
             return True
-    return False
+    permissions: list[Any] = []
+    for field in ("perms", "permissions", "permission_codes", "rights", "capabilities"):
+        value = profile.get(field)
+        if isinstance(value, dict):
+            permissions.extend(k for k, enabled in value.items() if enabled is True or str(enabled).casefold() in {"1", "true", "yes"})
+        elif isinstance(value, (list, tuple, set)):
+            permissions.extend(value)
+        elif isinstance(value, str):
+            permissions.extend(re.split(r"[,;\s]+", value))
+    tokens = {re.sub(r"[_-]+", " ", str(v).strip().casefold()) for v in permissions}
+    return bool(tokens & {
+        "owner", "project owner", "owner all", "project manage", "manage project",
+        "chief", "chief moderator", "head moderator", "главный модератор",
+        "главмод", "владелец проекта", "создатель проекта",
+    })
 
 
-async def _gdewtf_authorize(user_id: int, action: str) -> tuple[bool, str]:
-    """Authorize exclusively from the live GDE.WTF API; deny on uncertainty."""
-    # Do not trust a local permission cache here. Rights can be revoked on
-    # moder.gde.wtf and must take effect on the very next command/button click.
-    # Explicitly evict this exact identity lookup because the general API reader
-    # caches /mod briefly for display commands; authorization must always be live.
-    _GDEWTF_API_CACHE.pop(_gdewtf_cache_key("/mod", {"q": str(user_id)}), None)
-    response = await _api("GET", "/mod", params={"q": str(user_id)})
-    mod = response.get("mod") if isinstance(response.get("mod"), dict) else None
-    if not response.get("ok") or not mod:
+async def _gdewtf_authorize(user_id: int, action: str, username: str | None = None) -> tuple[bool, str]:
+    """Resolve Telegram identity to GDE.WTF profile and check its project permissions."""
+    queries = [str(user_id)]
+    if username:
+        queries.append("@" + username.lstrip("@"))
+    mod: dict[str, Any] | None = None
+    api_errors: list[str] = []
+    for query in queries:
+        _GDEWTF_API_CACHE.pop(_gdewtf_cache_key("/mod", {"q": query}), None)
+        response = await _api("GET", "/mod", params={"q": query})
+        candidate = response.get("mod") if isinstance(response.get("mod"), dict) else None
+        if response.get("ok") and candidate:
+            # A direct lookup is authoritative only when its identity matches;
+            # some API versions return fuzzy search results for /mod?q.
+            if _gdewtf_profile_matches_telegram(candidate, user_id, username):
+                mod = candidate
+                break
+            api_errors.append(f"{query}:profile_identity_mismatch")
+        else:
+            api_errors.append(f"{query}:{response.get('error', 'not_found')}")
+
+    if mod is None:
+        # Fallback: locate the Telegram account in the moderator directory and
+        # use the matched profile's RND pub/code for subsequent project actions.
+        _GDEWTF_API_CACHE.pop(_gdewtf_cache_key("/mods", {}), None)
+        directory = await _api("GET", "/mods")
+        entries: list[Any] = []
+        for key in ("mods", "moderators", "items", "results", "data"):
+            value = directory.get(key)
+            if isinstance(value, list):
+                entries.extend(value)
+            elif isinstance(value, dict):
+                for nested_key in ("mods", "moderators", "items", "results"):
+                    if isinstance(value.get(nested_key), list):
+                        entries.extend(value[nested_key])
+        for candidate in entries:
+            if isinstance(candidate, dict) and _gdewtf_profile_matches_telegram(candidate, user_id, username):
+                mod = candidate
+                break
+
+    if not mod:
+        log_gdewtf.info("GDE.WTF identity not linked: telegram_id=%s username=%r action=%s api=%s",
+                        user_id, username, action, ";".join(api_errors)[:500])
         return False, (
-            "⛔ API GDE.WTF не подтвердил твой аккаунт. "
-            "Доступ к боту разрешён только владельцу проекта и главному модератору."
+            "⛔ Не удалось найти профиль GDE.WTF для твоего Telegram. "
+            "Проверены Telegram ID, username и список модераторов. "
+            "Убедись, что Telegram привязан к профилю с кодом RND-XXXX."
         )
     if mod.get("banned") is True or mod.get("active") is False:
         return False, "⛔ Аккаунт отключён или заблокирован в GDE.WTF."
     if not _gdewtf_is_owner_or_chief(mod):
-        role = str(mod.get("role_label") or mod.get("role") or "обычный модератор")
-        log_gdewtf.info(
-            "Denied GDE.WTF bot access: user_id=%s role=%r action=%s",
-            user_id, role[:100], action,
-        )
+        role = str(mod.get("role_label") or mod.get("role") or mod.get("role_id") or "не указана")
+        pub = str(mod.get("pub") or mod.get("public_code") or mod.get("rnd_code") or mod.get("code") or "не найден")
+        log_gdewtf.info("Denied GDE.WTF access: telegram_id=%s pub=%r role=%r perms=%r action=%s",
+                        user_id, pub[:80], role[:100], mod.get("perms") or mod.get("permissions"), action)
         return False, (
-            "⛔ Доступ запрещён. Использовать бота и его кнопки могут только "
-            "владелец проекта GDE.WTF и главный модератор. "
-            f"Твоя роль по API: <code>{_clean(role)}</code>."
+            "⛔ Доступ запрещён: профиль найден, но API не подтвердил права владельца проекта "
+            "или главного модератора.\n"
+            f"Код профиля: <code>{_clean(pub)}</code> · роль: <code>{_clean(role)}</code>."
         )
     return True, ""
 
@@ -496,7 +558,7 @@ async def gdewtf_command(message: Message) -> None:
     text = (message.text or "").strip()
     action_for_auth = _gdewtf_action_from_message(text)
     try:
-        authorized, denial = await _gdewtf_authorize(message.from_user.id, action_for_auth)
+        authorized, denial = await _gdewtf_authorize(message.from_user.id, action_for_auth, message.from_user.username)
     except Exception:
         log_gdewtf.exception("Could not verify GDE.WTF project permissions for user=%s", message.from_user.id)
         await message.answer("⚠️ Не удалось проверить права в GDE.WTF. Команда не выполнена.")
@@ -930,7 +992,7 @@ async def gdewtf_panel_callback(callback: CallbackQuery) -> None:
     try:
         # Never trust the 30-second command cache for button clicks: project access
         # may have been revoked since the menu was sent. Recheck the live GDE.WTF profile.
-        authorized, denial = await _gdewtf_authorize(callback.from_user.id, auth_action)
+        authorized, denial = await _gdewtf_authorize(callback.from_user.id, auth_action, callback.from_user.username)
         if not authorized:
             # Reject the callback without sending a chat message; unauthorized users
             # cannot use the panel to trigger actions or spam its chat.
