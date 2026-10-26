@@ -291,6 +291,53 @@ def _error_text(data: dict[str, Any]) -> str:
     return messages.get(err, f"Ошибка GDE.WTF API: <code>{_clean(err)}</code>")
 
 
+def _gdewtf_people_count(data: dict[str, Any]) -> int | None:
+    """Extract an authoritative total from known count fields or a returned user list."""
+    count_fields = (
+        "people", "users", "members", "total_people", "total_users",
+        "users_count", "people_count", "members_count", "user_count",
+        "total", "count",
+    )
+    candidates: list[dict[str, Any]] = [data]
+    for key in ("stats", "counts", "data", "project", "meta", "pagination"):
+        nested = data.get(key)
+        if isinstance(nested, dict):
+            candidates.append(nested)
+    for candidate in candidates:
+        for field in count_fields:
+            value = candidate.get(field)
+            if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                return value
+            if isinstance(value, str) and value.strip().isdigit():
+                return int(value.strip())
+    for field in ("people", "users", "members", "items", "results"):
+        value = data.get(field)
+        if isinstance(value, list):
+            return len(value)
+    return None
+
+
+async def _gdewtf_fetch_people_count() -> tuple[int | None, str | None]:
+    """Try documented project stats surfaces without fabricating a count."""
+    ping = await _api("GET", "/ping")
+    count = _gdewtf_people_count(ping) if ping.get("ok") else None
+    if count is not None:
+        return count, None
+
+    last_error = _error_text(ping) if not ping.get("ok") else None
+    # API versions may expose the project-wide total on one of these read endpoints.
+    for endpoint in ("/stats", "/people", "/users"):
+        result = await _api("GET", endpoint)
+        if not result.get("ok"):
+            last_error = _error_text(result)
+            continue
+        count = _gdewtf_people_count(result)
+        if count is not None:
+            return count, None
+        last_error = "API ответил, но не вернул общее количество пользователей."
+    return None, last_error or "API не предоставил статистику пользователей."
+
+
 def _profile(mod: dict[str, Any]) -> str:
     warns = mod.get("warns") or []
     perms = mod.get("perms") or []
@@ -338,7 +385,8 @@ def _gdewtf_panel_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🏆 Рейтинг", callback_data="gdepanel:top"),
          InlineKeyboardButton(text="📜 Журнал", callback_data="gdepanel:logs")],
         [InlineKeyboardButton(text="🛰 Проверка API", callback_data="gdepanel:ping"),
-         InlineKeyboardButton(text="📖 Команды", callback_data="gdepanel:help")],
+         InlineKeyboardButton(text="👤 Люди", callback_data="gdepanel:people")],
+        [InlineKeyboardButton(text="📖 Команды", callback_data="gdepanel:help")],
         [InlineKeyboardButton(text="⚠️ Варн", callback_data="gdepanel:warn"),
          InlineKeyboardButton(text="🧹 Снять варн", callback_data="gdepanel:clearwarn")],
         [InlineKeyboardButton(text="🚫 Бан", callback_data="gdepanel:ban"),
@@ -505,6 +553,26 @@ async def gdewtf_command(message: Message) -> None:
 
     data: dict[str, Any]
     try:
+        if action in {"люди", "people", "users", "участники"}:
+            count, problem = await _gdewtf_fetch_people_count()
+            if count is None:
+                await message.answer(
+                    "⚠️ <b>Статистика участников GDE.WTF</b>\\n"
+                    "API не предоставил общее количество людей.\\n"
+                    f"<i>{_clean(problem or 'Нет данных')}</i>"
+                )
+            else:
+                digits = f"{count:,}".replace(",", " ")
+                await message.answer(
+                    "🌐 <b>GDE.WTF · статистика проекта</b>\\n"
+                    "━━━━━━━━━━━━━━━━━━━━\\n"
+                    "👤 <b>Всего участников</b>\\n"
+                    f"　<code>{digits}</code> человек\\n"
+                    "━━━━━━━━━━━━━━━━━━━━\\n"
+                    "📊 Данные получены через API проекта."
+                )
+            return
+
         if action in {"ping", "пинг"}:
             data = await _api("GET", "/ping")
             if data.get("ok"):
@@ -858,7 +926,7 @@ async def gdewtf_panel_callback(callback: CallbackQuery) -> None:
     key = (callback.data or "").split(":", 1)[1].casefold()
     auth_action = {
         "mods": "модераторы", "cities": "города", "top": "топ",
-        "logs": "журнал", "ping": "ping", "help": "help",
+        "logs": "журнал", "ping": "ping", "people": "люди", "help": "help",
         "warn": "варн", "clearwarn": "снятьварн", "ban": "бан",
         "unban": "разбан", "setmod": "назначить", "remove": "снять",
     }.get(key, "help")
@@ -883,6 +951,25 @@ async def gdewtf_panel_callback(callback: CallbackQuery) -> None:
                 "remove": "Ответь на сообщение: <code>!снять</code> или укажи <code>!снять @username</code>.",
             }
             await callback.message.edit_text("🛡 <b>Модерация GDE.WTF</b>\n\n" + examples[key], reply_markup=_gdewtf_panel_keyboard())
+        elif key == "people":
+            count, problem = await _gdewtf_fetch_people_count()
+            if count is None:
+                output = (
+                    "⚠️ <b>Статистика участников GDE.WTF</b>\\n"
+                    "API не предоставил общее количество людей.\\n"
+                    f"<i>{_clean(problem or 'Нет данных')}</i>"
+                )
+            else:
+                digits = f"{count:,}".replace(",", " ")
+                output = (
+                    "🌐 <b>GDE.WTF · статистика проекта</b>\\n"
+                    "━━━━━━━━━━━━━━━━━━━━\\n"
+                    "👤 <b>Всего участников</b>\\n"
+                    f"　<code>{digits}</code> человек\\n"
+                    "━━━━━━━━━━━━━━━━━━━━\\n"
+                    "📊 Данные получены через API проекта."
+                )
+            await callback.message.edit_text(output, reply_markup=_gdewtf_panel_keyboard())
         elif key == "ping":
             data = await _api("GET", "/ping")
             output = (f"🟢 <b>GDE.WTF API доступен</b>\nМодераторов: {_clean(data.get('mods'))} · городов: {_clean(data.get('cities'))}"
@@ -7541,11 +7628,12 @@ async def main() -> None:
             menu_button=MenuButtonWebApp(
                 text="Открыть GDE.WTF",
                 web_app=WebAppInfo(url=MINI_APP_URL),
-            )
+            ),
+            request_timeout=4,
         )
         log.info("Telegram Mini App menu button configured: %s", MINI_APP_URL)
-    except Exception:
-        log.exception("Не удалось обновить кнопку Mini App в меню Telegram")
+    except Exception as exc:
+        log.warning("Не удалось обновить кнопку Mini App в меню Telegram; запуск продолжается: %s", str(exc)[:240])
     # Menu/command registration is cosmetic; a transient Telegram API error here
     # must not prevent the bot from entering long polling.
     for label, commands, scope in (
@@ -7554,9 +7642,9 @@ async def main() -> None:
         ("owner commands", private_commands + owner_commands, BotCommandScopeChat(chat_id=OWNER_ID)),
     ):
         try:
-            await bot.set_my_commands(commands, scope=scope)
-        except Exception:
-            log.exception("Could not register %s during startup; continuing", label)
+            await bot.set_my_commands(commands, scope=scope, request_timeout=4)
+        except Exception as exc:
+            log.warning("Could not register %s during startup; continuing: %s", label, str(exc)[:240])
 
     # Long polling requires the webhook to be removed. Retry temporary API/network
     # failures instead of exiting immediately and leaving the service down.
