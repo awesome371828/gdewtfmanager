@@ -8802,10 +8802,18 @@ async def run_forever() -> None:
             delay = min(60.0, 2.0 ** min(failures, 5))
             log.exception("Bot main loop crashed; restarting in %.0fs", delay)
         finally:
+            global _API_SESSION
+            try:
+                if _API_SESSION is not None and not _API_SESSION.closed:
+                    await _API_SESSION.close()
+            except Exception:
+                log.exception("Could not close GDE.WTF API HTTP session")
+            finally:
+                _API_SESSION = None
             try:
                 await bot.session.close()
             except Exception:
-                pass
+                log.exception("Could not close Telegram HTTP session")
             if not stop_for_polling_conflict:
                 # Rebuild the HTTP session after transient failures. Keep the
                 # same bounded timeout as initial startup so restarts do not
