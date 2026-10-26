@@ -1,6 +1,6 @@
 """
 GDE.WTF — бот проекта для управления сообществами и модерации в Telegram.
-Python 3.11+, aiogram 3, Supabase.
+Python 3.11+, aiogram 3, PostgreSQL.
 Set TELEGRAM_BOT_TOKEN, SUPABASE_URL and SUPABASE_SERVICE_KEY in environment.
 """
 from __future__ import annotations
@@ -44,8 +44,8 @@ from aiogram.types import (
     BotCommandScopeChat, ChatPermissions, KeyboardButton, Message, CallbackQuery, BufferedInputFile,
     ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, MenuButtonWebApp,
 )
-from supabase import Client, create_client
-from supabase.client import ClientOptions
+from PostgreSQL import Client, create_client
+from PostgreSQL.client import ClientOptions
 
 try:
     import fcntl
@@ -714,44 +714,24 @@ async def gdewtf_command(message: Message) -> None:
 if not BOT_TOKEN:
     raise RuntimeError("Не задан TELEGRAM_BOT_TOKEN в Secrets / переменных окружения.")
 
-db: Client | None = None
+db: PostgresClient | None = None
 # Result of the startup schema check; diagnostics must not issue ~20 extra DB
 # requests on every /diag and compete with real commands.
 _SCHEMA_PROBLEMS: list[str] | None = None
-if SUPABASE_URL and SUPABASE_KEY:
+if DATABASE_URL:
     try:
-        # Keep the DB request timeout short: the SDK's default can wait for
-        # minutes and stall unrelated command handlers when Supabase is unhealthy.
-        db = create_client(
-            SUPABASE_URL,
-            SUPABASE_KEY,
-            options=ClientOptions(
-                postgrest_client_timeout=2,
-                storage_client_timeout=2,
-                function_client_timeout=2,
-            ),
-        )
-        log.info("Supabase client configured (request timeout=2s)")
-    except Exception as options_exc:
-        # Some supabase-py releases have a ClientOptions initialization regression.
-        # A working default client is much better than silently running with db=None.
-        log.exception("Supabase client with timeout options failed; trying safe compatibility fallback")
-        try:
-            db = create_client(SUPABASE_URL, SUPABASE_KEY)
-            # Best-effort cap the synchronous PostgREST HTTP session timeout as well.
-            postgrest = getattr(db, "postgrest", None)
-            session = getattr(postgrest, "session", None)
-            if session is not None and hasattr(session, "timeout"):
-                session.timeout = 2
-            log.warning(
-                "Supabase compatibility fallback active; SDK timeout options were rejected (%s)",
-                type(options_exc).__name__,
-            )
-        except Exception:
-            db = None
-            log.exception("Supabase compatibility fallback also failed; DB-dependent features will report unavailable")
+        db = create_client_from_env()
+        # Verify PostgreSQL connectivity before polling starts.
+        with db.connect() as _startup_conn:
+            with _startup_conn.cursor() as _startup_cur:
+                _startup_cur.execute("SELECT 1")
+                _startup_cur.fetchone()
+        log.info("PostgreSQL client configured via DATABASE_URL (TLS disabled)")
+    except Exception as db_exc:
+        log.exception("PostgreSQL initialization failed")
+        raise RuntimeError(f"Не удалось подключиться к PostgreSQL из DATABASE_URL: {type(db_exc).__name__}") from db_exc
 else:
-    raise RuntimeError("Запуск без постоянной БД запрещён: не заданы SUPABASE_URL и SUPABASE_SERVICE_KEY. Проверь переменные окружения RelaxDev.")
+    raise RuntimeError("Запуск без постоянной БД запрещён: не задан DATABASE_URL. Проверь PostgreSQL в переменных окружения RelaxDev.")
 
 # Telegram API calls can occasionally take several seconds on the hosting network.
 # A 4-second timeout was too aggressive: ordinary replies such as /start failed
@@ -1052,7 +1032,7 @@ class CommandRateLimitMiddleware(BaseMiddleware):
             return await handler(event, data)
         text_value = (event.text or event.caption or "").strip()
         # Global restrictions are relevant to bot commands, not ordinary chat messages.
-        # Avoid a cache miss / Supabase lookup for every regular message in a busy group.
+        # Avoid a cache miss / PostgreSQL lookup for every regular message in a busy group.
         command_like = bool(
             re.match(r"^[/!.][\w]+(?:@\w+)?", text_value, re.I)
             or re.match(
@@ -1064,7 +1044,7 @@ class CommandRateLimitMiddleware(BaseMiddleware):
                 text_value,
             )
         )
-        # /start and help must remain responsive even when Supabase is cold or slow.
+        # /start and help must remain responsive even when PostgreSQL is cold or slow.
         # They only display basic information and do not perform privileged actions.
         start_or_help = bool(re.match(r"(?i)^/(?:start|help|commands)(?:@\w+)?(?:\s|$)", text_value))
         # The helper has a TTL cache; only check command-like updates and keep DB I/O
@@ -1129,7 +1109,7 @@ async def _remember_message_id(handler, event: Message, data):
         _RECENT_MESSAGE_IDS[event.chat.id].append(event.message_id)
         _RECENT_TOPIC_MESSAGE_IDS[_message_topic_key(event)].append(event.message_id)
     raw = (event.text or event.caption or "").strip() if isinstance(event, Message) else ""
-    # Avoid one Supabase INSERT for every slash command: under active chat traffic
+    # Avoid one PostgreSQL INSERT for every slash command: under active chat traffic
     # these fire-and-forget writes can saturate asyncio's shared thread pool and make
     # unrelated handlers wait behind database I/O. Keep durable command_received
     # audit entries for security/moderation actions only; all slow handlers are still
@@ -1181,7 +1161,7 @@ async def _remember_message_id(handler, event: Message, data):
 
 router.message.outer_middleware(_remember_message_id)
 
-# Runtime cache is used if Supabase is temporarily unavailable. Settings are also
+# Runtime cache is used if PostgreSQL is temporarily unavailable. Settings are also
 # persisted in bot_chat_settings when the table from schema.sql exists.
 FILTER_DEFAULTS = {
     "antilink": False, "antiinvite": False, "antimat": False,
@@ -1309,7 +1289,7 @@ def _db_read_with_retry(table: str, operation: str, build_query):
             result = build_query()
             elapsed = time.monotonic() - started
             if elapsed >= 0.35:
-                log.warning("Slow Supabase operation: table=%s operation=%s elapsed_ms=%.0f attempts=%s",
+                log.warning("Slow PostgreSQL operation: table=%s operation=%s elapsed_ms=%.0f attempts=%s",
                             table, operation, elapsed * 1000, attempt + 1)
             return result
         except Exception as exc:
@@ -1324,15 +1304,15 @@ def _db_read_with_retry(table: str, operation: str, build_query):
                 except RuntimeError:
                     on_event_loop = False
                 if on_event_loop:
-                    log.warning("Temporary Supabase %s failure for %s on event loop; skipping blocking retry: %s",
+                    log.warning("Temporary PostgreSQL %s failure for %s on event loop; skipping blocking retry: %s",
                                 operation, table, exc)
                     return None
                 delay = 0.15
-                log.warning("Temporary Supabase %s failure for %s (attempt %s/2); retrying once in %.2fs: %s",
+                log.warning("Temporary PostgreSQL %s failure for %s (attempt %s/2); retrying once in %.2fs: %s",
                             operation, table, attempt + 1, delay, exc)
                 time.sleep(delay)
                 continue
-            log.exception("Supabase %s failed: %s", operation, table)
+            log.exception("PostgreSQL %s failed: %s", operation, table)
             return None
     return None
 
@@ -1368,14 +1348,14 @@ def db_insert(table: str, payload: dict) -> dict | None:
         result = db.table(table).insert(payload).execute()
         return (result.data or [None])[0]
     except Exception:
-        log.exception("Supabase insert failed: %s", table)
+        log.exception("PostgreSQL insert failed: %s", table)
         return None
 
 def db_upsert(table: str, payload: dict, on_conflict: str) -> dict | None:
     if db is None:
         return None
     def query():
-        # Request the persisted row explicitly. Without select(), Supabase/PostgREST
+        # Request the persisted row explicitly. Without select(), PostgreSQL/PostgREST
         # may return an empty data array for a successful upsert (return=minimal),
         # which callers incorrectly interpret as a failed write.
         result = db.table(table).upsert(payload, on_conflict=on_conflict).select("*").execute()
@@ -1410,7 +1390,7 @@ def audit(chat_id: int, actor_id: int, action: str, target_id: int | None = None
     except RuntimeError:
         db_insert("bot_audit", payload)
         return
-    # Audit logging must not add a Supabase round-trip to unrelated commands.
+    # Audit logging must not add a PostgreSQL round-trip to unrelated commands.
     loop.create_task(asyncio.to_thread(db_insert, "bot_audit", payload))
 
 async def audit_wait(chat_id: int, actor_id: int, action: str, target_id: int | None = None,
@@ -2457,14 +2437,14 @@ async def welcome_members(message: Message) -> None:
     await apply_raid_protection(message)
 
 # Activity events are batched by the background writer below so ordinary messages
-# never wait for Supabase writes.
+# never wait for PostgreSQL writes.
 
 def _persist_activity_batch_sync(items: list[tuple[int, int, str | None, str, str, int]]) -> None:
     """Atomically persist events and counters; the RPC is idempotent by chat/message ID."""
     if not items:
         return
     if db is None:
-        raise RuntimeError("Supabase is not configured; activity batch remains queued")
+        raise RuntimeError("PostgreSQL is not configured; activity batch remains queued")
     events = [{
         "chat_id": int(chat_id), "user_id": int(user_id), "username": username,
         "first_name": first_name or "Пользователь", "created_at": created_at,
@@ -2534,7 +2514,7 @@ async def _activity_writer_loop() -> None:
             # One SQLite transaction per batch protects events across process restarts
             # without forcing every incoming message to synchronously fsync the disk.
             if not await asyncio.to_thread(spool_activity_batch, batch):
-                log.error("Could not durably spool activity batch (size=%s); continuing with Supabase", len(batch))
+                log.error("Could not durably spool activity batch (size=%s); continuing with PostgreSQL", len(batch))
             async with _ACTIVITY_WRITE_SEMAPHORE:
                 for attempt in range(2):
                     try:
@@ -2735,7 +2715,7 @@ def _schedule_short_mute_expiry(chat_id: int, user_id: int, seconds: float) -> N
 @router.message(F.text.regexp(r"(?i)^[.!/]?(?:(?:дать|дай|дайте|выдать|выдай|выдайте)\s+)?(?:мут(?:ить|а|у|ом|е|ы|ов|ами|ах)?|замут(?:ить|и|ь|ьте|ите|а|у|ом|е)?|замуч(?:ить|и|ь|ьте|ите)?|заглуш(?:ить|и|ь|ьте|ите)?)(?:\s|$)"))
 @router.message(F.text.regexp(r"(?i)^@\w+\s+(?:мут(?:ить|а|у|ом|е|ы|ов|ами|ах)?|замут(?:ить|и|ь|ьте|ите|а|у|ом|е)?|замуч(?:ить|и|ь|ьте|ите)?|заглуш(?:ить|и|ь|ьте|ите)?)(?:\s|$)"))
 async def mute_cmd(message: Message) -> None:
-    # Reject an obviously incomplete command before any Telegram/Supabase permission
+    # Reject an obviously incomplete command before any Telegram/PostgreSQL permission
     # checks. This keeps bare «мут» instant instead of making several network calls.
     original_text = (message.text or "").strip()
     if not message.reply_to_message and not re.search(r"@\w+|(?<!\d)\d{7,}(?!\d)", original_text):
@@ -3135,7 +3115,7 @@ async def warn_cmd(message: Message) -> None:
     # in one Postgres transaction, so concurrent moderators cannot lose a warning.
     try:
         if db is None:
-            raise RuntimeError("Supabase client is not configured")
+            raise RuntimeError("PostgreSQL client is not configured")
         response = await asyncio.to_thread(
             lambda: db.rpc("pear_issue_warning", {
                 "p_chat_id": message.chat.id,
@@ -3151,7 +3131,7 @@ async def warn_cmd(message: Message) -> None:
             raise RuntimeError(f"warning RPC returned unexpected result: {result!r}")
         rpc_before = int(result.get("before_count") or 0)
         rpc_count = int(result.get("active_count") or (rpc_before + 1))
-        # Recount from the same audit ledger used by «варны». Older Supabase
+        # Recount from the same audit ledger used by «варны». Older PostgreSQL
         # deployments may still have a stale RPC body that returns inflated counts.
         ledger_entries = await asyncio.to_thread(active_warn_entries, message.chat.id, target[0])
         if ledger_entries:
@@ -3175,7 +3155,7 @@ async def warn_cmd(message: Message) -> None:
             count_verified = False
     except Exception:
         log.exception("Atomic warning issuance failed chat=%s target=%s", message.chat.id, target[0])
-        await message.answer("⚠️ Варн не выдан: база не подтвердила атомарную запись. Проверь schema.sql в Supabase и попробуй позже.")
+        await message.answer("⚠️ Варн не выдан: база не подтвердила атомарную запись. Проверь schema.sql в PostgreSQL и попробуй позже.")
         return
     actor = mention(message.from_user.id, message.from_user.full_name) if message.from_user else "модератор"
     profile_note = ""
@@ -3188,7 +3168,7 @@ async def warn_cmd(message: Message) -> None:
         result_text = (
             f"⚠️ Варн пользователю {mention(target[0], target[1])} записан. "
             f"Но база вернула противоречивые данные о предыдущих предупреждениях, поэтому точный счётчик "
-            f"не показан и автоматический бан не выполняется. Проверь SQL-функцию pear_issue_warning в Supabase. "
+            f"не показан и автоматический бан не выполняется. Проверь SQL-функцию pear_issue_warning в PostgreSQL. "
             f"Причина: <b>{escape(reason[:300])}</b>.\n👮 Модератор: {actor}."
         )
     await message.answer(format_panel(
@@ -3534,7 +3514,7 @@ _PEAR_USER_COUNTS_AT_BASELINE = {
     "tgiwq": 3, "qwzqi": 1, "oemqx": 1, "femxl": 1,
 }
 
-# Short leaderboard cache: the counters are durable in Supabase, but rebuilding a
+# Short leaderboard cache: the counters are durable in PostgreSQL, but rebuilding a
 # full historical ranking on every repeat command wastes several network round-trips.
 # Cache only the computed rows for a few seconds; moderation and writes stay uncached.
 _TOP_RESULT_CACHE: dict[tuple[int, str, int, bool], tuple[float, list[dict], int]] = {}
@@ -3857,7 +3837,7 @@ async def top_cmd(message: Message) -> None:
                         _TOP_RESULT_CACHE.pop(next(iter(_TOP_RESULT_CACHE)))
         except Exception:
             log.exception("Leaderboard query failed")
-            await message.answer("⚠️ Не удалось получить статистику. Проверь подключение Supabase и таблицы активности.")
+            await message.answer("⚠️ Не удалось получить статистику. Проверь подключение PostgreSQL и таблицы активности.")
             return
     if chat_only:
         rows = await filter_current_chat_members(message.chat.id, rows)
@@ -3921,7 +3901,7 @@ async def top_cmd(message: Message) -> None:
 
 
 
-# Short-lived nickname cache keeps repeated lookups off Supabase during busy chat bursts.
+# Short-lived nickname cache keeps repeated lookups off PostgreSQL during busy chat bursts.
 _CHAT_NICKNAME_CACHE: dict[tuple[int, int], tuple[str, float]] = {}
 _CHAT_NICKNAME_CACHE_TTL = 15.0
 
@@ -4016,7 +3996,7 @@ async def show_chat_nickname_cmd(message: Message) -> None:
     if nickname is None:
         row = await asyncio.to_thread(db_one, "bot_member_profiles", chat_id=message.chat.id, user_id=target_id)
         if row is None:
-            await message.answer("⚠️ Не удалось прочитать ник из Supabase. Проверь логи подключения и таблицу bot_member_profiles.")
+            await message.answer("⚠️ Не удалось прочитать ник из PostgreSQL. Проверь логи подключения и таблицу bot_member_profiles.")
             return
         nickname = str(row.get("display_name") or "").strip()
         _CHAT_NICKNAME_CACHE[key] = (nickname, time.monotonic())
@@ -4133,7 +4113,7 @@ async def set_chat_nickname_cmd(message: Message) -> None:
         await message.answer("⛔ Такого участника сейчас нет в этом чате или Telegram не смог подтвердить его участие.")
         return
     if explicit_username and explicit_target_in_args:
-        # Re-check against Telegram's live member object. A stale/corrupt Supabase
+        # Re-check against Telegram's live member object. A stale/corrupt PostgreSQL
         # username row must never cause another person to receive this nickname.
         try:
             live_member = await bot.get_chat_member(message.chat.id, target_id)
@@ -4154,7 +4134,7 @@ async def set_chat_nickname_cmd(message: Message) -> None:
         "display_name": nickname, "updated_at": datetime.now(timezone.utc).isoformat(),
     }, "chat_id,user_id")
     if not saved:
-        await message.answer("Не удалось сохранить ник. Проверь Supabase и выполни актуальный schema.sql.")
+        await message.answer("Не удалось сохранить ник. Проверь PostgreSQL и выполни актуальный schema.sql.")
         return
     _invalidate_chat_nickname_cache(message.chat.id, target_id)
     await message.answer(
@@ -4204,7 +4184,7 @@ async def clear_chat_nickname_cmd(message: Message) -> None:
         _invalidate_chat_nickname_cache(message.chat.id, target_id)
     await message.answer(
         f"♻️ Ник сброшен у {mention(target_id, target[1])}. Теперь будет отображаться имя из Telegram."
-        if saved else "Не удалось убрать ник. Проверь Supabase."
+        if saved else "Не удалось убрать ник. Проверь PostgreSQL."
     )
 
 @router.message(Command("nicks"))
@@ -4272,10 +4252,10 @@ async def list_chat_nicknames_cmd(message: Message) -> None:
         rows = await asyncio.to_thread(load_nicknames)
     except Exception:
         log.exception("Failed to load chat nicknames chat=%s", message.chat.id)
-        await message.answer("⚠️ Не удалось загрузить ники этого чата. Проверь, что в Supabase выполнен актуальный schema.sql.")
+        await message.answer("⚠️ Не удалось загрузить ники этого чата. Проверь, что в PostgreSQL выполнен актуальный schema.sql.")
         return
     if db is None:
-        await message.answer("⚠️ Список ников хранится в Supabase, но база сейчас не настроена.")
+        await message.answer("⚠️ Список ников хранится в PostgreSQL, но база сейчас не настроена.")
         return
     rows = await filter_current_chat_members(message.chat.id, rows)
     if not rows:
@@ -4355,7 +4335,7 @@ async def logs_cmd(message: Message) -> None:
 # ── Integrated moderation stages from moderation.py ──────────────────────────
 # Stage A: durable per-chat filter settings and human-readable time/reason parsing.
 # Per-chat background refreshes prevent a cache miss from performing a
-# synchronous Supabase request on aiogram's event-loop thread.
+# synchronous PostgreSQL request on aiogram's event-loop thread.
 _CHAT_SETTINGS_REFRESH_TASKS: dict[int, asyncio.Task] = {}
 
 async def _refresh_chat_settings_async(chat_id: int) -> None:
@@ -4397,7 +4377,7 @@ def get_chat_settings(chat_id: int, force_refresh: bool = False) -> dict[str, An
 
         if on_event_loop:
             # Stale-but-known settings are safer than blocking every command for
-            # 100–400ms (or several seconds during a Supabase/network incident).
+            # 100–400ms (or several seconds during a PostgreSQL/network incident).
             if chat_id not in _CHAT_SETTINGS_REFRESH_TASKS:
                 task = loop.create_task(_refresh_chat_settings_async(chat_id))
                 _CHAT_SETTINGS_REFRESH_TASKS[chat_id] = task
@@ -4432,7 +4412,7 @@ def get_chat_settings(chat_id: int, force_refresh: bool = False) -> dict[str, An
 
 def save_chat_settings(chat_id: int, settings: dict[str, Any]) -> None:
     # Update the in-memory state immediately; persist in a worker thread so a
-    # slow Supabase response cannot stall commands or other chat updates.
+    # slow PostgreSQL response cannot stall commands or other chat updates.
     snapshot = dict(settings)
     _CHAT_SETTINGS_CACHE[chat_id] = snapshot
     _CHAT_SETTINGS_CACHE_TIME[chat_id] = time.monotonic()
@@ -4545,7 +4525,7 @@ async def rank_cmd(message: Message) -> None:
         "username": user.get("username"), "first_name": user.get("first_name") or target[1],
         "warns": int(user.get("warns", 0)), "messages": int(user.get("messages", 0)), "rank": rank}, "user_id,chat_id")
     if not saved:
-        await message.answer("⚠️ Не удалось сохранить ранг. Проверь подключение Supabase и таблицу bot_users.")
+        await message.answer("⚠️ Не удалось сохранить ранг. Проверь подключение PostgreSQL и таблицу bot_users.")
         return
     invalidate_user_rank(message.chat.id, target[0])
     audit(message.chat.id, message.from_user.id, "set_rank", target[0], f"rank={rank}")
@@ -4616,7 +4596,7 @@ async def promote_rank_cmd(message: Message) -> None:
         "warns": int(user.get("warns", 0)), "messages": int(user.get("messages", 0)), "rank": new_rank}
     saved = await asyncio.to_thread(db_upsert, "bot_users", payload, "user_id,chat_id")
     if not saved:
-        await message.answer("⚠️ Не удалось сохранить повышение ранга. Проверь подключение Supabase и таблицу bot_users.")
+        await message.answer("⚠️ Не удалось сохранить повышение ранга. Проверь подключение PostgreSQL и таблицу bot_users.")
         return
     invalidate_user_rank(message.chat.id, target[0])
     audit(message.chat.id, message.from_user.id if message.from_user else 0, "promote", target[0], f"rank={current}->{new_rank}")
@@ -4687,7 +4667,7 @@ async def demote_rank_cmd(message: Message) -> None:
         "warns": int(user.get("warns", 0)), "messages": int(user.get("messages", 0)), "rank": new_rank}
     saved = await asyncio.to_thread(db_upsert, "bot_users", payload, "user_id,chat_id")
     if not saved:
-        await message.answer("⚠️ Не удалось сохранить понижение ранга. Проверь подключение Supabase и таблицу bot_users.")
+        await message.answer("⚠️ Не удалось сохранить понижение ранга. Проверь подключение PostgreSQL и таблицу bot_users.")
         return
     invalidate_user_rank(message.chat.id, target[0])
     audit(message.chat.id, message.from_user.id if message.from_user else 0, "demote", target[0], f"rank={current}->{new_rank}")
@@ -4881,7 +4861,7 @@ async def filter_action_cmd(message: Message) -> None:
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }, "chat_id")
     if not saved:
-        await message.answer("⚠️ Не удалось сохранить настройку в Supabase; действие фильтра не изменено.")
+        await message.answer("⚠️ Не удалось сохранить настройку в PostgreSQL; действие фильтра не изменено.")
         return
     _CHAT_SETTINGS_CACHE[message.chat.id] = dict(settings)
     _CHAT_SETTINGS_CACHE_TIME[message.chat.id] = time.monotonic()
@@ -4948,7 +4928,7 @@ async def premium_cmd(message: Message) -> None:
         await message.answer(
             "💎 <b>GDE.WTF Premium активирован для этого чата!</b>\n\n"
             "Сохранена премиум-отметка чата и включён расширенный статус модерации.\n"
-            "Настройки сохраняются в Supabase, если таблица bot_chat_settings настроена."
+            "Настройки сохраняются в PostgreSQL, если таблица bot_chat_settings настроена."
         )
         return
     if action in {"off", "выкл", "выключить", "отключить", "disable"}:
@@ -5082,7 +5062,7 @@ async def auto_moderation_filters(message: Message) -> None:
 # moderation and consumed ordinary group updates. Register it last so command
 # handlers and automatic filters can actually run first.
 # ── GDE.WTF moderation stage: history, reports, appeals, settings, rights, raid ──
-# State is per chat; durable settings and case records are stored in Supabase.
+# State is per chat; durable settings and case records are stored in PostgreSQL.
 @router.message(Command("history"))
 @router.message(F.text.regexp(r"(?i)^\s*(?:история наказаний|нарушения)(?:\s|$)"))
 async def moderation_history_cmd(message: Message) -> None:
@@ -5238,12 +5218,12 @@ async def close_case(message: Message, table: str, action: str) -> None:
         case_id, reason = int(args[0]), " ".join(args[1:])[:500]
     else:
         case_id, reason = int(match.group(1)), match.group(2).strip()[:500]
-    # Supabase helper intentionally limits updates to a single matching row.
+    # PostgreSQL helper intentionally limits updates to a single matching row.
     if db is None:
         await message.answer("База данных недоступна.")
         return
     def _close_case_sync() -> bool:
-        # Supabase Python client is synchronous. Keep the HTTP request off the
+        # PostgreSQL Python client is synchronous. Keep the HTTP request off the
         # event loop so a slow DB response cannot freeze all chat updates.
         result = db.table(table).update({
             "status": "closed", "closed_by": message.from_user.id,
@@ -5487,7 +5467,7 @@ async def close_chat_cmd(message: Message) -> None:
                         "can_send_other_messages": True, "can_add_web_page_previews": True,
                     }
             if db is None:
-                await message.answer("⛔ Не закрываю чат: база данных не настроена, и после перезапуска бот может потерять сохранённые разрешения. Сначала подключи Supabase.")
+                await message.answer("⛔ Не закрываю чат: база данных не настроена, и после перезапуска бот может потерять сохранённые разрешения. Сначала подключи PostgreSQL.")
                 return
             settings["chat_locked_by_bot"] = True
             # Persist the restore permissions and lock marker BEFORE changing Telegram.
@@ -5524,7 +5504,7 @@ _TRUSTED_LOCKS: dict[tuple[int, int], threading.Lock] = {}
 _TRUSTED_LOCKS_GUARD = threading.Lock()
 
 def _trusted_lock(key: tuple[int, int]) -> threading.Lock:
-    # Avoid duplicate Supabase lookups on concurrent cache misses for one user.
+    # Avoid duplicate PostgreSQL lookups on concurrent cache misses for one user.
     with _TRUSTED_LOCKS_GUARD:
         lock = _TRUSTED_LOCKS.get(key)
         if lock is None:
@@ -5553,11 +5533,11 @@ def _invalidate_trusted(chat_id: int, user_id: int) -> None:
     _TRUSTED_CACHE.pop((chat_id, user_id), None)
 
 async def _reason_from_preset(chat_id: int, action: str, raw_reason: str | None) -> str:
-    """Resolve a moderation reason without blocking the asyncio event loop on Supabase."""
+    """Resolve a moderation reason without blocking the asyncio event loop on PostgreSQL."""
     reason = (raw_reason or "").strip()
     if not reason or reason.lower() in {"не указана", "не указано", "нет"}:
         return reason or "не указана"
-    # get_chat_settings performs synchronous Supabase I/O on a cache miss, so it
+    # get_chat_settings performs synchronous PostgreSQL I/O on a cache miss, so it
     # must always run in a worker thread when called from a Telegram handler.
     settings = await asyncio.to_thread(get_chat_settings, chat_id)
     presets = settings.get("punishment_reasons", {})
@@ -6144,7 +6124,7 @@ _GLOBAL_BAN_TTL = 30.0
 OWNER_HELP = (
     "<b>🛠 Панель овнера GDE.WTF</b>\n\n"
     "<b>Диагностика</b>\n"
-    "/status — статус и время работы\n/ping — проверка Telegram/Supabase\n"
+    "/status — статус и время работы\n/ping — проверка Telegram/PostgreSQL\n"
     "/diag — конфигурация без вывода секретов\n/logs [число] — последние записи аудита\n"
     "/globalstats — статистика базы\n/exportstats — выгрузка статистики JSON\n"
     "/modules — состояние основных модулей\n/version — версия сборки\n"
@@ -6228,7 +6208,7 @@ async def _owner_or_operator(message: Message) -> bool:
         return False
     if message.from_user.id == OWNER_ID:
         return True
-    # Supabase lookup must not stall the asyncio update loop.
+    # PostgreSQL lookup must not stall the asyncio update loop.
     if await asyncio.to_thread(_operator_active, message.from_user.id):
         return True
     await message.answer("⛔ Нужен доступ овнера или активного оператора.")
@@ -6507,7 +6487,7 @@ async def owner_status(message: Message) -> None:
     )
 
 # Cache diagnostics briefly so repeated owner checks do not add remote
-# Telegram/Supabase round-trips to command handling. Cached values retain their
+# Telegram/PostgreSQL round-trips to command handling. Cached values retain their
 # measured latency; they are never replaced with a fabricated low number.
 _PING_CACHE: tuple[float, str, str] | None = None
 _PING_CACHE_LOCK = asyncio.Lock()
@@ -6540,7 +6520,7 @@ async def owner_ping(message: Message) -> None:
                     except Exception as exc:
                         return f"ошибка ({type(exc).__name__})"
 
-                async def _supabase_probe() -> str:
+                async def _PostgreSQL_probe() -> str:
                     if db is None:
                         return "не настроена"
                     def probe() -> str:
@@ -6556,12 +6536,12 @@ async def owner_ping(message: Message) -> None:
                         return "тайм-аут (>750 мс)"
 
                 # Parallel probes avoid summing Telegram and database round-trips.
-                telegram, db_result = await asyncio.gather(_telegram_probe(), _supabase_probe())
+                telegram, db_result = await asyncio.gather(_telegram_probe(), _PostgreSQL_probe())
                 _PING_CACHE = (time.monotonic(), telegram, db_result)
 
     await message.answer(format_panel(
         "ПРОВЕРКА СОЕДИНЕНИЯ",
-        f"Telegram API: <b>{telegram}</b>\nSupabase: <b>{db_result}</b>\n<i>Показания обновляются раз в 15 секунд.</i>",
+        f"Telegram API: <b>{telegram}</b>\nPostgreSQL: <b>{db_result}</b>\n<i>Показания обновляются раз в 15 секунд.</i>",
         "GDE.WTF · технический статус",
     ))
 
@@ -6583,7 +6563,7 @@ async def owner_diagnostics(message: Message) -> None:
     if db is not None:
         # These probes are independent. Run them concurrently in worker threads:
         # the previous synchronous loop blocked the event loop and added each
-        # Supabase round-trip to /diag latency, delaying other incoming updates.
+        # PostgreSQL round-trip to /diag latency, delaying other incoming updates.
         tables = (
             "bot_users", "bot_audit", "bot_chat_settings",
             "bot_global_settings", "bot_operators",
@@ -6619,14 +6599,14 @@ async def owner_diagnostics(message: Message) -> None:
     # Use the last startup schema check instead of firing another 20 sequential
     # PostgREST/RPC requests every time /diag is called.
     schema_problems = list(_SCHEMA_PROBLEMS) if _SCHEMA_PROBLEMS is not None else (
-        [] if db is not None else ["Supabase не настроен"]
+        [] if db is not None else ["PostgreSQL не настроен"]
     )
     schema_label = (
         "OK" if not schema_problems else "есть проблемы (" + str(len(schema_problems)) + ")"
     )
     if _SCHEMA_PROBLEMS is None and db is not None:
         schema_label = "проверка при запуске ещё не завершена"
-    lines.append(f"• Схема Supabase: {schema_label}")
+    lines.append(f"• Схема PostgreSQL: {schema_label}")
     details = "\n".join(lines)
     if schema_problems:
         details += "\n\n<b>Проблемы схемы:</b>\n" + "\n".join(escape(x) for x in schema_problems)
@@ -6791,7 +6771,7 @@ async def owner_add_operator(message: Message) -> None:
         audit(message.chat.id, OWNER_ID, "operator_add", uid, "operator granted")
         await message.answer(f"✅ Доступ оператора выдан ID <code>{uid}</code>.")
     else:
-        await message.answer("Не удалось сохранить доступ. Создай таблицу bot_operators из schema.sql и проверь Supabase.")
+        await message.answer("Не удалось сохранить доступ. Создай таблицу bot_operators из schema.sql и проверь PostgreSQL.")
 
 @router.message(Command("revokeoperator"))
 @router.message(F.text.regexp(r"(?i)^\s*отозвать доступ\s+\d+\s*$"))
@@ -6805,7 +6785,7 @@ async def owner_revoke_operator(message: Message) -> None:
     if row:
         audit(message.chat.id, OWNER_ID, "operator_revoke", uid, "operator revoked")
         await message.answer(f"🔒 Доступ ID <code>{uid}</code> отозван.")
-    else: await message.answer("Не удалось обновить доступ. Проверь таблицу bot_operators в Supabase.")
+    else: await message.answer("Не удалось обновить доступ. Проверь таблицу bot_operators в PostgreSQL.")
 
 @router.message(Command("operators", "операторы"))
 async def owner_list_operators(message: Message) -> None:
@@ -6920,7 +6900,7 @@ async def _global_moderation_command(message: Message, remove: bool = False) -> 
             "created_at": now_iso, "expires_at": None,
         }, "user_id")
         if not row:
-            await message.answer("❌ Не удалось снять бан. Проверь Supabase и выполни миграцию из schema.sql.")
+            await message.answer("❌ Не удалось снять бан. Проверь PostgreSQL и выполни миграцию из schema.sql.")
             return
         _GLOBAL_BAN_CACHE[uid] = (False, time.monotonic() + _GLOBAL_BAN_TTL)
         await asyncio.to_thread(audit, message.chat.id, actor_id, "globalunban", uid, "global ban removed")
@@ -6947,7 +6927,7 @@ async def _global_moderation_command(message: Message, remove: bool = False) -> 
         "created_at": now_iso, "expires_at": expires_at,
     }, "user_id")
     if not row:
-        await message.answer("❌ Не удалось сохранить глобальный бан. Проверь Supabase и выполни миграцию из schema.sql.")
+        await message.answer("❌ Не удалось сохранить глобальный бан. Проверь PostgreSQL и выполни миграцию из schema.sql.")
         return
     _GLOBAL_BAN_CACHE[uid] = (True, time.monotonic() + _GLOBAL_BAN_TTL)
     await asyncio.to_thread(audit, message.chat.id, actor_id, "globalban", uid, reason)
@@ -7230,13 +7210,13 @@ async def main() -> None:
             schema_problems = await asyncio.to_thread(check_schema, db)
             _SCHEMA_PROBLEMS = list(schema_problems)
             if schema_problems:
-                log.error("Supabase schema compatibility check found %s issue(s): %s",
+                log.error("PostgreSQL schema compatibility check found %s issue(s): %s",
                           len(schema_problems), " | ".join(schema_problems))
             else:
-                log.info("Supabase schema compatibility check passed")
+                log.info("PostgreSQL schema compatibility check passed")
         except Exception:
-            # A temporary Supabase outage must not kill the whole bot before polling starts.
-            log.exception("Supabase schema check failed during startup; continuing with runtime retries")
+            # A temporary PostgreSQL outage must not kill the whole bot before polling starts.
+            log.exception("PostgreSQL schema check failed during startup; continuing with runtime retries")
     # The durable spool survives process restarts when the host keeps its working directory.
     pending_count = activity_spool_size()
     if pending_count:
@@ -7719,7 +7699,7 @@ async def economy_cmd(message: Message) -> None:
     if norm in {"бонус", "ежедневный бонус"}:
         result = await _economy_rpc(chat_id, uid, "bonus")
         if not result:
-            await message.answer("⚠️ Не удалось обработать бонус. Проверь подключение Supabase.")
+            await message.answer("⚠️ Не удалось обработать бонус. Проверь подключение PostgreSQL.")
         elif result.get("ok"):
             await message.answer(f"🎁 Ежедневный бонус: +100 GDE.WTF Coins!\n🪙 Баланс: <b>{int(result.get('balance') or 0)}</b>")
         else:
@@ -7739,7 +7719,7 @@ async def economy_cmd(message: Message) -> None:
             return
         result = await _economy_rpc(chat_id, uid, "purchase", amount=price, title=item)
         if not result:
-            await message.answer("⚠️ Не удалось оформить покупку. Проверь подключение Supabase.")
+            await message.answer("⚠️ Не удалось оформить покупку. Проверь подключение PostgreSQL.")
         elif result.get("ok"):
             await message.answer("🛍 Покупка оформлена!")
         else:
@@ -7759,7 +7739,7 @@ async def economy_cmd(message: Message) -> None:
             return
         result = await _economy_rpc(chat_id, uid, "transfer", target_id=to_uid, amount=amount)
         if not result:
-            await message.answer("⚠️ Не удалось выполнить перевод. Проверь подключение Supabase.")
+            await message.answer("⚠️ Не удалось выполнить перевод. Проверь подключение PostgreSQL.")
         elif result.get("ok"):
             await message.answer(f"🪙 Переведено <b>{amount}</b> монет участнику {mention(to_uid, str(target.get('first_name') or 'Участник'))}.")
         else:
@@ -7811,7 +7791,7 @@ async def clan_cmd(message: Message) -> None:
         if ok:
             await message.answer(f"🏰 Клан <b>{escape(name)}</b> создан! Ты его лидер.")
         else:
-            await message.answer("Не удалось создать клан атомарно. Проверь schema.sql в Supabase; причина: <code>" + escape(str(reason)[:100]) + "</code>.")
+            await message.answer("Не удалось создать клан атомарно. Проверь schema.sql в PostgreSQL; причина: <code>" + escape(str(reason)[:100]) + "</code>.")
         return
     if action in {"вступить","вступитьв","join"}:
         if not name:
@@ -7883,7 +7863,7 @@ async def clan_cmd(message: Message) -> None:
         except Exception:
             log.exception("Atomic clan leadership transfer failed chat=%s clan=%s", chat_id, clan_name)
             ok = False
-        await message.answer("👑 Лидерство передано." if ok else "Не удалось передать лидерство атомарно. Проверь schema.sql в Supabase.")
+        await message.answer("👑 Лидерство передано." if ok else "Не удалось передать лидерство атомарно. Проверь schema.sql в PostgreSQL.")
         return
     if action in {"выйти","покинуть","leave"}:
         member = await asyncio.to_thread(db_one, "bot_clan_members", chat_id=chat_id, user_id=uid)
@@ -8126,7 +8106,7 @@ async def gather_cmd(message: Message) -> None:
 
     if not mentions:
         await audit_wait(message.chat.id, message.from_user.id if message.from_user else 0,
-                         "participant_call_error", details="stage=resolve_users; reason=no_saved_ids; check bot_users, bot_activity_events, tracking and Supabase schema")
+                         "participant_call_error", details="stage=resolve_users; reason=no_saved_ids; check bot_users, bot_activity_events, tracking and PostgreSQL schema")
         await message.answer(
             "⚠️ Общий сбор не запущен: не найдено ни одного сохранённого ID. "
             "Проверь в логах владельца причину и наличие таблиц bot_users / bot_activity_events."
@@ -8221,11 +8201,11 @@ async def gather_cmd(message: Message) -> None:
 async def run_forever() -> None:
     """Keep the bot process alive through transient startup/polling failures."""
     global bot
-    # Supabase's Python SDK is synchronous, so handlers use asyncio.to_thread().
+    # PostgreSQL's Python SDK is synchronous, so handlers use asyncio.to_thread().
     # On a 4-vCPU host Python's default executor may have only 8 workers; a burst
     # of DB-backed commands can queue behind slow network I/O and inflate latency.
     # Use a bounded, network-I/O-oriented pool; this preserves every feature while
-    # allowing concurrent commands to wait on Supabase independently.
+    # allowing concurrent commands to wait on PostgreSQL independently.
     loop = asyncio.get_running_loop()
     loop.set_default_executor(
         ThreadPoolExecutor(max_workers=48, thread_name_prefix="pear-io")
