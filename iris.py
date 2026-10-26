@@ -324,15 +324,15 @@ def _help() -> str:
         "<code>!города</code> — список городов\n"
         "<code>!журнал [q] [limit]</code> — журнал действий\n"
         "<code>!варн q причина</code> — выдать предупреждение\n"
-        "<code>!снятьварны q [index]</code> — снять одно предупреждение (index с 0) или все\n"
+        "<code>!снятьварны q</code> — снять все предупреждения\n"
         "<code>!ник q новый_ник</code> / <code>!ник q -</code> — назначить/снять ник\n"
         "<code>!город q city_id</code> — назначить/сменить город; <code>-</code> — убрать\n"
         "<code>!амб q</code> — назначить амбассадором города\n"
         "<code>!rgov q регион [city1,city2]</code> — назначить региональным управляющим\n"
         "<code>!назначить q [город] [права]</code> — назначить/обновить модератора\n"
         "<code>!снять q</code> — снять с модерации (q: @username, Telegram ID или ответ на сообщение)\n"
-        "<code>!снятьварн q номер</code> — снять один конкретный варн (номер начинается с 1)\n"
-        "<code>!бан q [причина]</code> / <code>!разбан q</code> — бан/разбан\n\n"
+        "<code>!снятьварн [q] [номер]</code> / <code>!анварн [q] [номер]</code> — снять один варн (без номера снимается первый)\n"
+        "<code>!бан [q] [причина]</code> / <code>!разбан [q]</code> / <code>!анбан [q]</code> — бан/разбан\n\n"
         "В качестве q указывай pub-код, @username или Telegram ID. Доступ определяется ролью и правами твоего аккаунта в проекте GDE.WTF."
     )
 
@@ -453,20 +453,24 @@ async def gdewtf_command(message: Message) -> None:
         if message.reply_to_message and message.reply_to_message.from_user
         else None
     )
-    target_actions = {"снять", "modremove", "варн", "warn", "снятьварн", "снять-варн", "снятьварны", "снять-варны", "warnclear"}
+    target_actions = {
+        "профиль", "who", "mod", "варны", "кто", "статус", "права",
+        "варн", "warn", "снять", "modremove", "снятьварн", "снять-варн", "анварн", "unwarn",
+        "снятьварны", "снять-варны", "warnclear", "ник", "nick", "город", "city",
+        "амб", "amb", "rgov", "регион", "региональный", "назначить", "modset",
+        "бан", "ban", "разбан", "unban", "анбан",
+    }
     if replied_user and action in target_actions:
         reply_id = str(replied_user.id)
-        if action in {"варн", "warn"}:
-            explicit_target = bool(rest and (rest[0].startswith("@") or rest[0].isdigit() or re.fullmatch(r"(?i)RND-[A-Z0-9]{4}", rest[0])))
-            if not explicit_target:
-                rest = [reply_id] + rest
-        elif action in {"снятьварн", "снять-варн"}:
-            if not rest:
-                rest = [reply_id]
-            elif len(rest) == 1 and rest[0].isdigit():
-                rest = [reply_id, rest[0]]
-        elif not rest:
-            rest = [reply_id]
+        single_warn_remove = action in {"снятьварн", "снять-варн", "анварн", "unwarn"}
+        numeric_warn_index = single_warn_remove and bool(rest) and rest[0].isdigit() and len(rest[0]) < 7
+        explicit_target = bool(rest and (
+            rest[0].startswith("@")
+            or (rest[0].isdigit() and not numeric_warn_index)
+            or re.fullmatch(r"(?i)RND-[A-Z0-9]{4}", rest[0])
+        ))
+        if not explicit_target:
+            rest = [reply_id] + rest
 
     data: dict[str, Any]
     try:
