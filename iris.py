@@ -846,10 +846,14 @@ async def gdewtf_panel_callback(callback: CallbackQuery) -> None:
         "unban": "разбан", "setmod": "назначить", "remove": "снять",
     }.get(key, "help")
     try:
+        # Never trust the 30-second command cache for button clicks: project access
+        # may have been revoked since the menu was sent. Recheck the live GDE.WTF profile.
+        _GDEWTF_ACCESS_CACHE.pop(callback.from_user.id, None)
         authorized, denial = await _gdewtf_authorize(callback.from_user.id, auth_action)
         if not authorized:
-            await callback.answer("Нет доступа", show_alert=True)
-            await callback.message.answer(denial)
+            # Reject the callback without sending a chat message; unauthorized users
+            # cannot use the panel to trigger actions or spam its chat.
+            await callback.answer("⛔ Нет прав в проекте GDE.WTF", show_alert=True)
             return
         if key == "help":
             await callback.message.answer(_help(), reply_markup=_gdewtf_panel_keyboard())
