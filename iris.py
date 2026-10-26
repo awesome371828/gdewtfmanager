@@ -714,12 +714,14 @@ async def gdewtf_command(message: Message) -> None:
         "амб", "amb", "rgov", "регион", "региональный", "назначить", "modset",
         "бан", "ban", "разбан", "unban", "анбан",
     }
+    resolved_target_profile: dict[str, Any] | None = None
     if action in target_actions_for_resolution and rest:
         is_warn_index = action in {"снятьварн", "снять-варн", "анварн", "unwarn"} and rest[0].isdigit() and len(rest[0]) < 7
         raw_target = rest[0]
         if not is_warn_index:
             resolved, resolved_data = await _gdewtf_resolve_mod(raw_target)
             if resolved:
+                resolved_target_profile = resolved
                 canonical = (
                     resolved.get("pub") or resolved.get("public_code") or resolved.get("rnd_code")
                     or resolved.get("code") or resolved.get("tg_id") or resolved.get("telegram_id")
@@ -959,11 +961,9 @@ async def gdewtf_command(message: Message) -> None:
             # Capture the count before the write. If the API commits the warning
             # but its POST response times out, read-after-write verification avoids
             # falsely reporting failure and avoids blindly repeating a non-idempotent POST.
-            before_data = await _api("GET", "/mod", params={"q": q})
-            before_mod = before_data.get("mod") if before_data.get("ok") and isinstance(before_data.get("mod"), dict) else {}
+            before_mod = resolved_target_profile if isinstance(resolved_target_profile, dict) else {}
             before_count_known = bool(
-                before_data.get("ok")
-                and ("warns_count" in before_mod or isinstance(before_mod.get("warns"), list))
+                "warns_count" in before_mod or isinstance(before_mod.get("warns"), list)
             )
             try:
                 before_count = int(before_mod.get("warns_count") or len(before_mod.get("warns") or []))
@@ -976,7 +976,10 @@ async def gdewtf_command(message: Message) -> None:
             data = await _api("POST", "/warn", body={"q": q, "reason": api_reason, "by": f"GDE.WTF / {message.from_user.id}"})
             if not data.get("ok") and data.get("error") == "api_unavailable" and data.get("detail") == "timeout":
                 _gdewtf_invalidate_api_cache()
-                verify = await _api("GET", "/mod", params={"q": q})
+                verify = await _api(
+                    "GET", "/mod", params={"q": q},
+                    request_timeout=aiohttp.ClientTimeout(total=3, connect=1.5, sock_read=2),
+                )
                 verify_mod = verify.get("mod") if verify.get("ok") and isinstance(verify.get("mod"), dict) else {}
                 after_count_known = bool(
                     verify.get("ok")
@@ -1081,7 +1084,10 @@ async def gdewtf_command(message: Message) -> None:
             # Verify state before telling the operator the action failed.
             if not data.get("ok") and data.get("error") == "api_unavailable" and data.get("detail") == "timeout":
                 _gdewtf_invalidate_api_cache()
-                verify = await _api("GET", "/mod", params={"q": remove_q})
+                verify = await _api(
+                    "GET", "/mod", params={"q": remove_q},
+                    request_timeout=aiohttp.ClientTimeout(total=3, connect=1.5, sock_read=2),
+                )
                 if not verify.get("ok") and str(verify.get("error") or "") == "not_found":
                     data = {"ok": True, "pub": remove_q, "mod": {}, "verified_after_timeout": True}
                 elif verify.get("ok") and isinstance(verify.get("mod"), dict):
