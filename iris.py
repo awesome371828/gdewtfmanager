@@ -310,10 +310,7 @@ def _gdewtf_people_count(data: dict[str, Any]) -> int | None:
                 return value
             if isinstance(value, str) and value.strip().isdigit():
                 return int(value.strip())
-    for field in ("people", "users", "members", "items", "results"):
-        value = data.get(field)
-        if isinstance(value, list):
-            return len(value)
+    # Do not use len(list) as a project total: endpoints may return only one page.
     return None
 
 
