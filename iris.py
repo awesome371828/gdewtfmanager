@@ -118,6 +118,7 @@ _TIMEOUT = aiohttp.ClientTimeout(total=8, connect=3, sock_read=5)
 # command. The API session is closed cleanly with the bot during shutdown.
 _API_SESSION: aiohttp.ClientSession | None = None
 _API_SESSION_LOCK = asyncio.Lock()
+_SHUTDOWN_EVENT: asyncio.Event | None = None
 
 # Short TTL cache for idempotent reads: prevents bursts of identical API
 # requests from piling up behind network latency. Mutation responses invalidate it.
