@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: pear-cm
-    restart: unless-stopped
+    restart: on-failure:5
     init: true
     env_file:
       - .env
