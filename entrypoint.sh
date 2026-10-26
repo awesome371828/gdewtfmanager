@@ -1,6 +1,6 @@
 #!/bin/sh
-# Restart the bot after unexpected exits. Telegram polling conflicts are different:
-# exit 23 means another instance owns the token, so stop rather than fight it.
+# Restart after unexpected exits. Exit 23 means another process already polls
+# this bot token; stop this container instead of fighting the other instance.
 set -u
 delay=2
 child=""
@@ -24,13 +24,8 @@ while true; do
   child=""
 
   if [ "$code" -eq 23 ]; then
-    echo "[pear-entrypoint] Telegram polling conflict: another instance is using this token. Retrying in 60s."
-    sleep 60 &
-    child=$!
-    wait "$child" || true
-    child=""
-    delay=2
-    continue
+    echo "[pear-entrypoint] Telegram polling conflict: another instance is using this token. Exiting to avoid a restart loop." >&2
+    exit 23
   fi
 
   ended="$(date +%s)"
