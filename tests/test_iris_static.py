@@ -221,8 +221,10 @@ class PearCMStaticRegressionTests(unittest.TestCase):
 
     def test_global_ban_is_enforced_before_message_handlers(self):
         self.assertIn("await asyncio.to_thread(_is_globally_banned, event.from_user.id)", self.source)
-        self.assertIn("Доступ к функциям Pear CM для этого аккаунта ограничен", self.source)
-        self.assertIn("await asyncio.to_thread(_is_globally_banned, callback.from_user.id)", self.source)
+        self.assertIn("Доступ к функциям GDE.WTF для этого аккаунта ограничен", self.source)
+        self.assertIn("class GlobalBanCallbackMiddleware", self.source)
+        self.assertIn("await asyncio.to_thread(_is_globally_banned, user.id)", self.source)
+        self.assertIn("router.callback_query.outer_middleware(GlobalBanCallbackMiddleware())", self.source)
 
     def test_rank_changes_follow_strict_hierarchy(self):
         for handler_name in ("promote_rank_cmd", "demote_rank_cmd"):
@@ -383,18 +385,14 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn("Telegram getChatMember failed; refusing unverified member check", member_body)
         self.assertIn("_CHAT_MEMBER_CACHE[key] = (None, now)", member_body)
 
-    def test_marriage_flow_authorizes_buttons_and_confirms_database_transitions(self):
-        callback_start = self.source.index("async def marriage_proposal_callback")
-        callback_end = self.source.index("@router.message(Command(\"marriage\"", callback_start)
-        callback = self.source[callback_start:callback_end]
-        self.assertIn('row.get("status") != "pending"', callback)
-        self.assertIn('row.get("user2_id") or 0) != callback.from_user.id', callback)
-        self.assertIn("Эти кнопки предназначены только тому, кому предложили брак", callback)
-        divorce_start = self.source.index("async def divorce_cmd")
-        divorce_end = self.source.index("# ── Integrated moderation stages", divorce_start)
-        divorce = self.source[divorce_start:divorce_end]
-        self.assertIn('.eq("status", "married").select("*").execute()', divorce)
-        self.assertIn("Брак не подтверждён как расторгнутый", divorce)
+    def test_removed_marriage_feature_is_not_advertised_as_working(self):
+        # Marriage/relationship roleplay was intentionally removed. The retained
+        # SQL table is a compatibility migration, not an exposed bot feature.
+        self.assertNotIn('F.text == "💍 Брак"', self.source)
+        self.assertNotIn('Command("marry")', self.source)
+        self.assertNotIn('Command("marriage")', self.source)
+        self.assertNotIn('Command("divorce")', self.source)
+        self.assertNotIn('F.data.startswith("marriage:")', self.source)
 
     def test_database_enforces_single_active_marriage_and_valid_sql_function_quotes(self):
         schema = SCHEMA.read_text(encoding="utf-8").lower()
@@ -404,16 +402,12 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertNotRegex(schema, r"(?m)^as \\$")
         self.assertNotRegex(schema, r"(?m)^\\$;$")
 
-    def test_command_aliases_and_answer_commands_do_not_share_marriage_matcher(self):
-        marriage_start = self.source.index("async def marry_cmd")
-        marriage_end = self.source.index("@router.callback_query(F.data.startswith(\"marriage:\"))", marriage_start)
-        marriage = self.source[marriage_start:marriage_end]
-        self.assertIn("(?:брак|брачок|брачиться", self.source)
-        self.assertIn("async def marriages_directory_dispatch_first", self.source)
-        self.assertIn("(?:браки|все\\s+браки|список\\s+браков)", self.source)
-        self.assertIn('брак да', self.source)
-        self.assertIn('брак нет', self.source)
-        self.assertTrue(marriage.rstrip().endswith(")"))
+    def test_removed_marriage_aliases_do_not_intercept_chat_commands(self):
+        # Generic text handlers must not advertise or dispatch removed marriage aliases.
+        self.assertNotIn('(?:брак|брачок|брачиться', self.source)
+        self.assertNotIn('(?:браки|все\\s+браки|список\\s+браков)', self.source)
+        self.assertNotIn('брак да', self.source)
+        self.assertNotIn('брак нет', self.source)
         self.assertIn("CommandRateLimitMiddleware", self.source)
         self.assertIn("command_match = re.match", self.source)
 
