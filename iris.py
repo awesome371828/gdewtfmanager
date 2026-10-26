@@ -566,7 +566,7 @@ async def gdewtf_command(message: Message) -> None:
                 chunks.append(title + "\n".join(current_rows))
             for index, chunk in enumerate(chunks, start=1):
                 if len(chunks) > 1:
-                    chunk = chunk.replace(title, title.rstrip() + f" · часть {index}/{len(chunks)}\\n", 1)
+                    chunk = chunk.replace(title, title.rstrip() + f" · часть {index}/{len(chunks)}\n", 1)
                 await message.answer(
                     chunk,
                     parse_mode=ParseMode.HTML,
