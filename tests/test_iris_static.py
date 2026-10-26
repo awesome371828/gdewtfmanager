@@ -459,6 +459,14 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn('verified_after_timeout', body)
         self.assertIn('await _gdewtf_safe_answer(message,', body)
 
+    def test_gdewtf_api_timeouts_are_bounded_and_warning_reads_are_reused(self):
+        self.assertIn("request_timeout: aiohttp.ClientTimeout | None = None", self.source)
+        self.assertIn("timeout=request_timeout or _TIMEOUT", self.source)
+        self.assertIn("probe_timeout = aiohttp.ClientTimeout(total=4, connect=1.5, sock_read=3)", self.source)
+        self.assertIn("results = await asyncio.gather(", self.source)
+        self.assertIn("before_mod = resolved_target_profile if isinstance(resolved_target_profile, dict) else {}", self.source)
+        self.assertIn("request_timeout=aiohttp.ClientTimeout(total=3, connect=1.5, sock_read=2)", self.source)
+
     def test_gdewtf_panel_edits_existing_message_and_uses_api_membership(self):
         start = self.source.index("async def _gdewtf_authorize(")
         end = self.source.index("\n\n@gdewtf_router.message", start)
