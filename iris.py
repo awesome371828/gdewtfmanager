@@ -324,9 +324,18 @@ async def _gdewtf_fetch_people_count() -> tuple[int | None, str | None]:
         return count, None
 
     last_error = _error_text(ping) if not ping.get("ok") else None
-    # API versions may expose the project-wide total on one of these read endpoints.
-    for endpoint in ("/stats", "/people", "/users"):
-        result = await _api("GET", endpoint)
+    # These are read-only compatibility endpoints supported by some API builds.
+    # Probe them concurrently: serial timeouts could stall !люди for 32 seconds.
+    probe_timeout = aiohttp.ClientTimeout(total=4, connect=1.5, sock_read=3)
+    endpoints = ("/stats", "/people", "/users")
+    results = await asyncio.gather(
+        *(_api("GET", endpoint, request_timeout=probe_timeout) for endpoint in endpoints),
+        return_exceptions=True,
+    )
+    for endpoint, result in zip(endpoints, results):
+        if isinstance(result, BaseException):
+            last_error = f"{endpoint}: {type(result).__name__}"
+            continue
         if not result.get("ok"):
             last_error = _error_text(result)
             continue
