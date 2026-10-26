@@ -197,10 +197,11 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
                         )
                     )
                     data = {"ok": response.status < 400, key: parsed}
-                elif response.status < 400:
-                    # Some ping endpoints answer with plain "pong" or no body.
+                elif response.status < 400 and normalized_path == "/ping":
+                    # Only the health endpoint may legitimately return plain "pong".
                     data = {"ok": True, "message": (raw_text.strip()[:180] or "HTTP response without body")}
                 else:
+                    # A non-JSON response from a data endpoint is not an empty success.
                     data = {"ok": False, "error": "invalid_api_response"}
                 if response.status >= 400:
                     data.setdefault("ok", False)
