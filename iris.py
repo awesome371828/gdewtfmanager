@@ -117,6 +117,23 @@ _TIMEOUT = aiohttp.ClientTimeout(total=8, connect=3, sock_read=5)
 # command. The API session is closed cleanly with the bot during shutdown.
 _API_SESSION: aiohttp.ClientSession | None = None
 
+# Short TTL cache for idempotent reads: prevents bursts of identical API
+# requests from piling up behind network latency. Mutation responses invalidate it.
+_GDEWTF_API_CACHE: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
+_GDEWTF_API_CACHE_TTL = {"/mods": 4.0, "/cities": 30.0, "/ping": 2.0, "/mod": 2.0}
+_GDEWTF_API_CACHE_LOCK = asyncio.Lock()
+
+
+def _gdewtf_cache_key(path: str, params: dict[str, Any] | None) -> tuple[str, str]:
+    normalized_path = "/" + path.lstrip("/")
+    normalized_params = json.dumps(params or {}, sort_keys=True, ensure_ascii=False, default=str)
+    return normalized_path, normalized_params
+
+
+def _gdewtf_invalidate_api_cache() -> None:
+    # Clear all read snapshots after writes so profiles, warns and lists don't stay stale.
+    _GDEWTF_API_CACHE.clear()
+
 
 async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
                body: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -128,6 +145,13 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
         "Accept": "application/json",
     }
     global _API_SESSION
+    normalized_path = "/" + path.lstrip("/")
+    cache_ttl = _GDEWTF_API_CACHE_TTL.get(normalized_path, 0.0) if method == "GET" else 0.0
+    cache_key = _gdewtf_cache_key(normalized_path, params) if cache_ttl else None
+    if cache_key is not None:
+        cached = _GDEWTF_API_CACHE.get(cache_key)
+        if cached and time.monotonic() - cached[0] < cache_ttl:
+            return dict(cached[1])
     try:
         if _API_SESSION is None or _API_SESSION.closed:
             _API_SESSION = aiohttp.ClientSession(
@@ -172,6 +196,19 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
                 if response.status >= 400:
                     data.setdefault("ok", False)
                     data.setdefault("http_status", response.status)
+                # Cache only successful GET responses. Error states and writes are never cached.
+                if cache_key is not None and data.get("ok"):
+                    _GDEWTF_API_CACHE[cache_key] = (time.monotonic(), dict(data))
+                    # Bound memory if many different profile IDs are queried.
+                    if len(_GDEWTF_API_CACHE) > 500:
+                        cutoff = time.monotonic() - 30.0
+                        for old_key, (stored_at, _) in list(_GDEWTF_API_CACHE.items()):
+                            if stored_at < cutoff:
+                                _GDEWTF_API_CACHE.pop(old_key, None)
+                        while len(_GDEWTF_API_CACHE) > 500:
+                            _GDEWTF_API_CACHE.pop(next(iter(_GDEWTF_API_CACHE)))
+                elif method != "GET" and data.get("ok"):
+                    _gdewtf_invalidate_api_cache()
                 return data
     except asyncio.TimeoutError as exc:
         log_gdewtf.warning(
