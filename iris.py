@@ -116,6 +116,7 @@ _TIMEOUT = aiohttp.ClientTimeout(total=8, connect=3, sock_read=5)
 # Reuse keep-alive connections to avoid a fresh DNS/TCP/TLS handshake on every
 # command. The API session is closed cleanly with the bot during shutdown.
 _API_SESSION: aiohttp.ClientSession | None = None
+_API_SESSION_LOCK = asyncio.Lock()
 
 # Short TTL cache for idempotent reads: prevents bursts of identical API
 # requests from piling up behind network latency. Mutation responses invalidate it.
@@ -154,11 +155,13 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
             return dict(cached[1])
     try:
         if _API_SESSION is None or _API_SESSION.closed:
-            _API_SESSION = aiohttp.ClientSession(
-                timeout=_TIMEOUT,
-                headers=headers,
-                connector=aiohttp.TCPConnector(limit=100, ttl_dns_cache=300, keepalive_timeout=30),
-            )
+            async with _API_SESSION_LOCK:
+                if _API_SESSION is None or _API_SESSION.closed:
+                    _API_SESSION = aiohttp.ClientSession(
+                        timeout=_TIMEOUT,
+                        headers=headers,
+                        connector=aiohttp.TCPConnector(limit=100, ttl_dns_cache=300, keepalive_timeout=30),
+                    )
         async with _API_SESSION.request(
             method, f"{API_BASE}/{path.lstrip('/')}",
             params=params if method == "GET" else None,
