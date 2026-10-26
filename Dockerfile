@@ -19,6 +19,7 @@ COPY iris.py moderation_full.py pear_core.py postgres_adapter.py schema.sql entr
 COPY tests ./tests
 # Static regression tests inspect the build recipe; include it in the test image.
 COPY Dockerfile ./Dockerfile
+COPY .dockerignore ./.dockerignore
 RUN chmod +x /app/entrypoint.sh
 
 # Fail the image build early on syntax errors and regression-test failures.
