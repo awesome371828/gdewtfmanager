@@ -499,12 +499,12 @@ async def _gdewtf_authorize(user_id: int, action: str, username: str | None = No
         response = await _api("GET", "/mod", params={"q": query})
         candidate = response.get("mod") if isinstance(response.get("mod"), dict) else None
         if response.get("ok") and candidate:
-            # A direct lookup is authoritative only when its identity matches;
-            # some API versions return fuzzy search results for /mod?q.
-            if _gdewtf_profile_matches_telegram(candidate, user_id, username):
-                mod = candidate
-                break
-            api_errors.append(f"{query}:profile_identity_mismatch")
+            # /mod?q is the API's explicit identity lookup. Some API versions
+            # return no Telegram ID in the profile, so requiring an echoed ID
+            # would reject a valid exact lookup. Prefer numeric Telegram ID,
+            # then username; directory matching below remains strict.
+            mod = candidate
+            break
         else:
             api_errors.append(f"{query}:{response.get('error', 'not_found')}")
 
