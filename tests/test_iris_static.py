@@ -458,6 +458,21 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn('"снятьварны", "снять-варны", "warnclear"', body)
         self.assertIn('body={"q": q, "reason": reason, "by":', body)
 
+    def test_gdewtf_panel_edits_existing_message_and_uses_api_membership(self):
+        start = self.source.index("async def _gdewtf_authorize(")
+        end = self.source.index("\n\n@gdewtf_router.message", start)
+        auth = self.source[start:end]
+        self.assertIn('await _api("GET", "/mod", params={"q": str(user_id)})', auth)
+        self.assertNotIn("_GDEWTF_KNOWN_PERMS", auth)
+        self.assertNotIn('role not in {"admin", "chief", "rgov", "amb", "mod"}', auth)
+        callback_start = self.source.index('@gdewtf_router.callback_query(F.data.startswith("gdepanel:"))')
+        callback_end = self.source.index("\n\nif not BOT_TOKEN", callback_start)
+        callback = self.source[callback_start:callback_end]
+        self.assertIn("callback.message.edit_text(", callback)
+        self.assertNotIn("callback.message.answer(", callback)
+        self.assertIn("message is not modified", callback)
+        self.assertIn('await callback.answer("⛔ Нет прав в проекте GDE.WTF", show_alert=True)', callback)
+
 
 if __name__ == "__main__":
     unittest.main()
