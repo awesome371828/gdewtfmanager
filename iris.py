@@ -1942,19 +1942,21 @@ def admin_inline_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="admin:home")],
     ])
 
-def profile_link(user_id: int, name: str) -> str:
-    """Clickable non-pinging profile link when the display value contains a username."""
+def profile_link(user_id: int, name: str, username: str | None = None) -> str:
+    """Clickable non-pinging profile link when a public Telegram username is known."""
     raw = str(name or "пользователь").strip()
     safe = escape(raw)
-    username = raw.lstrip("@") if raw.startswith("@") else ""
-    if username and re.fullmatch(r"[A-Za-z0-9_]{5,32}", username):
-        return f'<a href="https://t.me/{escape(username, quote=True)}">{safe}</a>'
+    candidate = str(username or "").strip().lstrip("@")
+    if not candidate and raw.startswith("@"):
+        candidate = raw.lstrip("@")
+    if candidate and re.fullmatch(r"[A-Za-z0-9_]{5,32}", candidate):
+        return f'<a href="https://t.me/{escape(candidate, quote=True)}">{safe}</a>'
     # A tg://user?id link can notify users. Without a username, plain text is safer.
     return safe
 
-def mention(user_id: int, name: str) -> str:
+def mention(user_id: int, name: str, username: str | None = None) -> str:
     """Render a clickable non-pinging profile link when a username is available."""
-    return profile_link(user_id, name)
+    return profile_link(user_id, name, username)
 
 def call_mention(user_id: int, name: str) -> str:
     """Notifying mention reserved exclusively for the explicit mass-call command."""
@@ -2904,7 +2906,7 @@ async def profile(message: Message) -> None:
     await message.answer(
         "👤 <b>МОЙ ПРОФИЛЬ</b>\n"
         "━━━━━━━━━━━━━━━━━━\n"
-        f"🪪 {profile_link(message.from_user.id, message.from_user.full_name)}\n"
+        f"🪪 {profile_link(message.from_user.id, message.from_user.full_name, message.from_user.username)}\n"
         "━━━━━━━━━━━━━━━━━━\n"
         f"💬 <b>Сообщений:</b> {messages:,}\n"
         f"🏅 <b>Ранг:</b> {role_name(rank)} · <code>{rank}/5</code>\n"
@@ -3081,7 +3083,7 @@ async def admins(message: Message) -> None:
             for uid, name, username in members:
                 display_name = str(name or (f"@{username}" if username else f"ID {uid}"))
                 # Clickable profile link, but never a raw @username mention.
-                safe_display_name = profile_link(uid, display_name)
+                safe_display_name = profile_link(uid, display_name, username)
                 lines.append(f"{icon} {safe_display_name}")
             lines.append("")
         if len(lines) <= 2:
@@ -4553,7 +4555,7 @@ async def top_cmd(message: Message) -> None:
         )
         # A text link to tg://user?id opens the profile but does not create a
         # Telegram mention entity and therefore does not ping the user.
-        display = profile_link(uid, display_name) if uid > 0 else escape(display_name)
+        display = profile_link(uid, display_name, username) if uid > 0 else escape(display_name)
         if period == "month":
             badge = "🔥🔥🔥 " if index <= 5 else ("💥💥 " if index <= 11 else ("⭐️ " if index <= 22 else "⚡️ "))
         elif period == "week":
@@ -7939,7 +7941,7 @@ async def _configure_telegram_menu(
 
 async def main() -> None:
     global _SCHEMA_PROBLEMS
-    log.info("GDE.WTF build tag: global-fast-moderation-and-nonping-20261027-r3")
+    log.info("GDE.WTF build tag: global-fast-moderation-and-nonping-20261027-r4")
     # Do not change Telegram bot profile fields on every process start. Telegram
     # rate-limits setMyName/setMyDescription; branding should be configured once
     # manually, not repeated during host restarts/deployments.
@@ -8229,7 +8231,7 @@ async def who_is_cmd(message: Message) -> None:
         msgs = 0
     name = str(user.get("first_name") or target.get("first_name") or "Участник")
     username = str(user.get("username") or target.get("username") or "").strip().lstrip("@")
-    display = profile_link(uid, name) if uid > 0 else escape(name)
+    display = profile_link(uid, name, username) if uid > 0 else escape(name)
     uname = f"<code>@{escape(username)}</code>" if username else "не указан"
     # Consistent compact visual hierarchy; profile_link is clickable but does not notify.
     await message.answer(
