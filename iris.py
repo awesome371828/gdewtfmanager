@@ -3340,13 +3340,13 @@ async def check_mod(message: Message, min_rank: int = 2, require_restrict: bool 
         return False
     if member.status not in (ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.CREATOR):
         await message.answer(
-            "⛔ <b>Боту нужны права администратора</b>\\n"
+            "⛔ <b>Боту нужны права администратора</b>\n"
             "Включи администраторский статус GDE.WTF в настройках группы."
         )
         return False
     if member.status == ChatMemberStatus.ADMINISTRATOR and not getattr(member, "can_restrict_members", False):
         await message.answer(
-            "⛔ <b>Не хватает права на муты и блокировки</b>\\n"
+            "⛔ <b>Не хватает права на муты и блокировки</b>\n"
             "Включи право ограничения участников для GDE.WTF."
         )
         return False
