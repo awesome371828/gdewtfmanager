@@ -716,7 +716,7 @@ async def _gdewtf_safe_answer(message: Message, *args: Any, **kwargs: Any) -> bo
     # A stalled Telegram request should not consume the global 15-second timeout.
     # Retrying sendMessage can rarely duplicate a reply if Telegram accepted the
     # first request but its response was lost.
-    kwargs["request_timeout"] = 5
+    kwargs["request_timeout"] = 2.0
     for attempt in range(2):
         try:
             await message.answer(*args, **kwargs)
@@ -730,7 +730,7 @@ async def _gdewtf_safe_answer(message: Message, *args: Any, **kwargs: Any) -> bo
                     getattr(message, "message_id", None),
                     type(exc).__name__,
                 )
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.1)
                 continue
             log_gdewtf.warning(
                 "Could not deliver GDE.WTF command reply after retry "
@@ -1420,7 +1420,7 @@ class LowLatencyBot(Bot):
 # GetUpdates requests, Telegram flood control, and long periods with no replies.
 bot = LowLatencyBot(
     BOT_TOKEN,
-    session=AiohttpSession(timeout=35, limit=500),
+    session=AiohttpSession(timeout=5, limit=500),
     default=DefaultBotProperties(parse_mode=ParseMode.HTML, link_preview_is_disabled=True),
 )
 dp = Dispatcher()
@@ -7939,7 +7939,7 @@ async def _configure_telegram_menu(
 
 async def main() -> None:
     global _SCHEMA_PROBLEMS
-    log.info("GDE.WTF build tag: global-fast-moderation-and-nonping-20261027-r2")
+    log.info("GDE.WTF build tag: global-fast-moderation-and-nonping-20261027-r3")
     # Do not change Telegram bot profile fields on every process start. Telegram
     # rate-limits setMyName/setMyDescription; branding should be configured once
     # manually, not repeated during host restarts/deployments.
@@ -9020,7 +9020,7 @@ async def run_forever() -> None:
                 # silently restore aiogram's 60-second default.
                 bot = LowLatencyBot(
                     BOT_TOKEN,
-                    session=AiohttpSession(timeout=35, limit=500),
+                    session=AiohttpSession(timeout=5, limit=500),
                     default=DefaultBotProperties(
                         parse_mode=ParseMode.HTML, link_preview_is_disabled=True
                     ),
