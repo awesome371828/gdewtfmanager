@@ -7205,30 +7205,18 @@ async def owner_ping(message: Message) -> None:
                 telegram, db_result = cached[1], cached[2]
             else:
                 async def _telegram_probe() -> str:
-                    # The first call may pay connection/DNS/TLS setup cost. Use it
-                    # only to warm the existing HTTP session, then measure three
-                    # actual getMe round-trips and report their median. This smooths
-                    # one-off connection setup spikes without fabricating a value.
-                    samples: list[float] = []
-                    errors: list[str] = []
-                    for sample_index in range(4):
-                        started = time.perf_counter()
-                        try:
-                            await asyncio.wait_for(bot.get_me(), timeout=0.75)
-                            elapsed_ms = (time.perf_counter() - started) * 1000
-                            if sample_index > 0:
-                                samples.append(elapsed_ms)
-                        except asyncio.TimeoutError:
-                            errors.append("тайм-аут")
-                        except Exception as exc:
-                            errors.append(type(exc).__name__)
-                    if samples:
-                        ordered = sorted(samples)
-                        median_ms = ordered[len(ordered) // 2]
-                        return f"{median_ms:.0f} мс · медиана 3 замеров после прогрева"
-                    if errors and all(error == "тайм-аут" for error in errors):
-                        return "тайм-аут (>750 мс)"
-                    return f"ошибка ({errors[-1] if errors else 'Telegram API'})"
+                    # One bounded request is enough to measure a live Telegram
+                    # round-trip. Four sequential probes made a cold /ping take
+                    # 2-3 seconds and amplified transient network stalls.
+                    started = time.perf_counter()
+                    try:
+                        await bot.get_me(request_timeout=1.2)
+                        elapsed_ms = (time.perf_counter() - started) * 1000
+                        return f"{elapsed_ms:.0f} мс · один замер"
+                    except asyncio.TimeoutError:
+                        return "тайм-аут (>1200 мс)"
+                    except Exception as exc:
+                        return f"ошибка ({type(exc).__name__})"
 
                 async def _PostgreSQL_probe() -> str:
                     if db is None:
@@ -7246,8 +7234,13 @@ async def owner_ping(message: Message) -> None:
                         return "тайм-аут (>750 мс)"
 
                 # Parallel probes avoid summing Telegram and database round-trips.
+                # Keep healthy measurements for 15s, but don't pin a transient
+                # network/DB error in the cache for the full healthy-cache TTL.
                 telegram, db_result = await asyncio.gather(_telegram_probe(), _PostgreSQL_probe())
                 _PING_CACHE = (time.monotonic(), telegram, db_result)
+                if "ошибка" in telegram or "тайм-аут" in telegram or "ошибка" in db_result or "тайм-аут" in db_result:
+                    # Failed probes are refreshed quickly on the next request.
+                    _PING_CACHE = (time.monotonic() - (_PING_CACHE_TTL - 3.0), telegram, db_result)
 
     await message.answer(format_panel(
         "ПРОВЕРКА СОЕДИНЕНИЯ",
