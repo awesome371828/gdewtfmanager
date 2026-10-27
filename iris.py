@@ -2983,6 +2983,7 @@ async def chat_warns(message: Message) -> None:
         return
     users = await asyncio.to_thread(db_rows, "bot_users", 1000, None, chat_id=message.chat.id)
     names = {int(row.get("user_id") or 0): str(row.get("first_name") or row.get("username") or "Участник") for row in users}
+    usernames = {int(row.get("user_id") or 0): str(row.get("username") or "").strip().lstrip("@") for row in users}
     try:
         profile_rows = await asyncio.to_thread(
             lambda: db.table("bot_member_profiles").select("user_id,display_name")
@@ -2999,10 +3000,10 @@ async def chat_warns(message: Message) -> None:
     for index, entry in enumerate(entries[:50], 1):
         uid = entry["user_id"]
         display_name = custom_names.get(uid) or names.get(uid, f"ID {uid}")
-        target = profile_link(uid, display_name)
+        target = profile_link(uid, display_name, usernames.get(uid))
         actor_id = entry["actor_id"]
         actor_name = custom_names.get(actor_id) or names.get(actor_id) or f"ID {actor_id}"
-        actor = profile_link(actor_id, actor_name) if actor_id else "система"
+        actor = profile_link(actor_id, actor_name, usernames.get(actor_id)) if actor_id else "система"
         lines.append(
             f"<b>{index:02d}.</b> {target}\n"
             f"   Причина: {escape(entry['reason'][:160])}\n"
@@ -7941,7 +7942,7 @@ async def _configure_telegram_menu(
 
 async def main() -> None:
     global _SCHEMA_PROBLEMS
-    log.info("GDE.WTF build tag: global-fast-moderation-and-nonping-20261027-r4")
+    log.info("GDE.WTF build tag: global-fast-moderation-and-nonping-20261027-r5")
     # Do not change Telegram bot profile fields on every process start. Telegram
     # rate-limits setMyName/setMyDescription; branding should be configured once
     # manually, not repeated during host restarts/deployments.
