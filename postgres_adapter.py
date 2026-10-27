@@ -223,7 +223,10 @@ class PostgresClient:
         if "sslmode=" in dsn:
             dsn = re.sub(r"([?&])sslmode=[^&]*&?", r"\1", dsn).rstrip("?&")
         self.dsn = dsn
-        configured_max = int(os.getenv("POSTGRES_POOL_MAX_SIZE", "12"))
+        try:
+            configured_max = int(os.getenv("POSTGRES_POOL_MAX_SIZE", "16"))
+        except ValueError:
+            configured_max = 16
         self.pool = ConnectionPool(
             conninfo=self.dsn,
             min_size=1,
@@ -246,6 +249,7 @@ class PostgresClient:
     def close(self) -> None:
         """Close pooled connections during graceful shutdown."""
         self.pool.close()
+
     def table(self, name: str):
         return PostgresQuery(self, name)
 
