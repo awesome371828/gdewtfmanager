@@ -123,7 +123,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         top_end = self.source.index("async def show_chat_nickname_cmd", top_start)
         top_body = self.source[top_start:top_end]
         self.assertIn("rows = await filter_current_chat_members(message.chat.id, rows)", top_body)
-        self.assertIn("display = profile_link(uid, display_name)", top_body)
+        self.assertIn("display = profile_link(uid, display_name, username)", top_body)
 
     def test_additive_schema_for_new_features_exists(self):
         schema = SCHEMA.read_text(encoding="utf-8")
