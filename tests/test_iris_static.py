@@ -463,7 +463,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         start = self.source.index("async def owner_ping(")
         end = self.source.index('@router.message(Command("diag"', start)
         ping = self.source[start:end]
-        self.assertIn('await bot.get_me(request_timeout=1.2)', ping)
+        self.assertIn('await bot.get_me(request_timeout=0.8)', ping)
         self.assertNotIn('for sample_index in range(4)', ping)
         self.assertIn('asyncio.gather(_telegram_probe(), _PostgreSQL_probe())', ping)
         self.assertIn('_PING_CACHE_TTL = 15.0', self.source)
