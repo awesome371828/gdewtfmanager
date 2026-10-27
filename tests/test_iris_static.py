@@ -547,7 +547,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertNotIn("return psycopg.connect(dsn, connect_timeout=4", adapter)
 
     def test_moderation_member_checks_are_bounded_and_cached(self):
-        self.assertIn("_CHAT_MEMBER_REQUEST_TIMEOUT = 1.2", self.source)
+        self.assertIn("_CHAT_MEMBER_REQUEST_TIMEOUT = 0.9", self.source)
         self.assertIn("_CHAT_MEMBER_FAILURE_TTL = 1.5", self.source)
         member_start = self.source.index("async def get_chat_member_cached")
         member_end = self.source.index("async def is_current_chat_member", member_start)
