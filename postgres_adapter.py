@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import psycopg
+from psycopg_pool import ConnectionPool
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
@@ -210,18 +211,41 @@ class PostgresRPC:
         return Result(value)
 
 class PostgresClient:
+    """Thread-safe PostgreSQL client with bounded connection reuse.
+
+    Existing query methods use a connection context manager. Returning a pool
+    connection context preserves that API while avoiding a new TCP connection
+    and authentication handshake for every SQL statement.
+    """
     def __init__(self, dsn: str):
         if not dsn:
             raise RuntimeError("DATABASE_URL is not set; configure PostgreSQL in Relax Dev.")
-        self.dsn = dsn
-
-    def connect(self):
-        # Relax Dev's DATABASE_URL points to its internal PgBouncer endpoint; TLS is disabled.
-        dsn = self.dsn
         if "sslmode=" in dsn:
             dsn = re.sub(r"([?&])sslmode=[^&]*&?", r"\1", dsn).rstrip("?&")
-        return psycopg.connect(dsn, connect_timeout=4, sslmode="disable", row_factory=dict_row)
+        self.dsn = dsn
+        configured_max = int(os.getenv("POSTGRES_POOL_MAX_SIZE", "12"))
+        self.pool = ConnectionPool(
+            conninfo=self.dsn,
+            min_size=1,
+            max_size=max(4, min(16, configured_max)),
+            timeout=3.0,
+            max_idle=300.0,
+            kwargs={
+                "connect_timeout": 4,
+                "sslmode": "disable",
+                "row_factory": dict_row,
+            },
+            open=True,
+            name="gdewtf-postgres",
+        )
 
+    def connect(self):
+        # The connection is returned to the pool when its context exits.
+        return self.pool.connection()
+
+    def close(self) -> None:
+        """Close pooled connections during graceful shutdown."""
+        self.pool.close()
     def table(self, name: str):
         return PostgresQuery(self, name)
 
