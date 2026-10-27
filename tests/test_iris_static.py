@@ -117,7 +117,8 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         nick_end = self.source.index('@router.message(Command("logs"))', nick_start)
         nick_body = self.source[nick_start:nick_end]
         self.assertIn("rows = await filter_current_chat_members(message.chat.id, rows)", nick_body)
-        self.assertIn('href="tg://user?id=', nick_body)
+        self.assertNotIn('href="tg://user?id=', nick_body)
+        self.assertIn("Without a username there is no reliable non-pinging public profile URL.", nick_body)
         top_start = self.source.index("async def top_cmd")
         top_end = self.source.index("async def show_chat_nickname_cmd", top_start)
         top_body = self.source[top_start:top_end]
@@ -544,6 +545,36 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn("max_size=max(4, min(16, configured_max))", adapter)
         self.assertIn("return self.pool.connection()", adapter)
         self.assertNotIn("return psycopg.connect(dsn, connect_timeout=4", adapter)
+
+    def test_moderation_member_checks_are_bounded_and_cached(self):
+        self.assertIn("_CHAT_MEMBER_REQUEST_TIMEOUT = 1.2", self.source)
+        self.assertIn("_CHAT_MEMBER_FAILURE_TTL = 1.5", self.source)
+        member_start = self.source.index("async def get_chat_member_cached")
+        member_end = self.source.index("async def is_current_chat_member", member_start)
+        member_helper = self.source[member_start:member_end]
+        self.assertIn("request_timeout=_CHAT_MEMBER_REQUEST_TIMEOUT", member_helper)
+        check_start = self.source.index("async def check_mod(")
+        check_end = self.source.index("_SHORT_MUTE_TASKS:", check_start)
+        check_body = self.source[check_start:check_end]
+        self.assertIn("get_chat_member_cached(bot, message.chat.id, bot.id)", check_body)
+        self.assertNotIn("await bot.get_chat_member(message.chat.id, bot.id)", check_body)
+
+    def test_read_only_member_lists_do_not_fan_out_telegram_requests(self):
+        start = self.source.index("async def filter_current_chat_members")
+        end = self.source.index("async def is_admin", start)
+        helper = self.source[start:end]
+        self.assertNotIn("asyncio.gather", helper)
+        self.assertNotIn("is_current_chat_member(", helper)
+        self.assertIn("_CHAT_MEMBER_CACHE.get", helper)
+
+    def test_only_mass_call_uses_notifying_profile_links(self):
+        helper_start = self.source.index("def call_mention(")
+        helper_end = self.source.index("# ── Database helpers", helper_start)
+        self.assertIn("tg://user?id=", self.source[helper_start:helper_end])
+        self.assertEqual(self.source.count("call_mention("), 2)
+        profile_start = self.source.index("def profile_link(")
+        profile_end = self.source.index("def call_mention(", profile_start)
+        self.assertNotIn("tg://user?id=", self.source[profile_start:profile_end])
 
 if __name__ == "__main__":
     unittest.main()
