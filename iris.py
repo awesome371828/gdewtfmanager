@@ -7956,7 +7956,7 @@ async def _configure_telegram_menu(
 
 async def main() -> None:
     global _SCHEMA_PROBLEMS
-    log.info("GDE.WTF build tag: low-latency-ping-20261027-r1")
+    log.info("GDE.WTF build tag: global-low-latency-pool-20261027-r1")
     # Do not change Telegram bot profile fields on every process start. Telegram
     # rate-limits setMyName/setMyDescription; branding should be configured once
     # manually, not repeated during host restarts/deployments.
