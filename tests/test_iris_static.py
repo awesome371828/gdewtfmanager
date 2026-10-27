@@ -7,6 +7,8 @@ from datetime import timedelta
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "iris.py"
 SCHEMA = ROOT / "schema.sql"
+POSTGRES_ADAPTER = ROOT / "postgres_adapter.py"
+REQUIREMENTS = ROOT / "requirements.txt"
 
 
 class PearCMStaticRegressionTests(unittest.TestCase):
@@ -533,6 +535,15 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn("await _gdewtf_authorize(callback.from_user.id, auth_action, callback.from_user.username)", callback)
         self.assertIn('reply_markup=_gdewtf_panel_keyboard()', callback)
 
+    def test_postgres_adapter_reuses_bounded_connections(self):
+        adapter = POSTGRES_ADAPTER.read_text(encoding="utf-8")
+        requirements = REQUIREMENTS.read_text(encoding="utf-8")
+        self.assertIn("psycopg-pool>=3.2,<4.0", requirements)
+        self.assertIn("from psycopg_pool import ConnectionPool", adapter)
+        self.assertIn("min_size=1", adapter)
+        self.assertIn("max_size=max(4, min(16, configured_max))", adapter)
+        self.assertIn("return self.pool.connection()", adapter)
+        self.assertNotIn("return psycopg.connect(dsn, connect_timeout=4", adapter)
 
 if __name__ == "__main__":
     unittest.main()
