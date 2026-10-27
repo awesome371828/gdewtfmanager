@@ -459,6 +459,16 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn('verified_after_timeout', body)
         self.assertIn('await _gdewtf_safe_answer(message,', body)
 
+    def test_owner_ping_uses_one_bounded_telegram_probe_and_parallel_db_probe(self):
+        start = self.source.index("async def owner_ping(")
+        end = self.source.index('@router.message(Command("diag"', start)
+        ping = self.source[start:end]
+        self.assertIn('await bot.get_me(request_timeout=1.2)', ping)
+        self.assertNotIn('for sample_index in range(4)', ping)
+        self.assertIn('asyncio.gather(_telegram_probe(), _PostgreSQL_probe())', ping)
+        self.assertIn('_PING_CACHE_TTL = 15.0', self.source)
+        self.assertIn('Failed probes are refreshed quickly', ping)
+
     def test_gdewtf_api_timeouts_are_bounded_and_warning_reads_are_reused(self):
         self.assertIn("request_timeout: aiohttp.ClientTimeout | None = None", self.source)
         self.assertIn("timeout=request_timeout or _TIMEOUT", self.source)
