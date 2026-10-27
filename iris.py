@@ -266,10 +266,8 @@ def _mod_line(mod: dict[str, Any]) -> str:
         numeric_id = int(tg_id or 0)
     except (TypeError, ValueError):
         numeric_id = 0
-    if numeric_id > 0:
-        linked_name = f'<a href="tg://user?id={numeric_id}">{safe_name}</a>'
-    elif username and re.fullmatch(r"[A-Za-z0-9_]{5,32}", username):
-        linked_name = f'<a href="https://t.me/{username}">{safe_name}</a>'
+    if username and re.fullmatch(r"[A-Za-z0-9_]{5,32}", username):
+        linked_name = f'<a href="https://t.me/{escape(username, quote=True)}">{safe_name}</a>'
     else:
         linked_name = safe_name
     city = mod.get("city_name") or mod.get("city") or "—"
@@ -971,10 +969,8 @@ async def gdewtf_command(message: Message) -> None:
                 if len(display) > 22:
                     display = display[:21] + "…"
                 safe_display = _clean(display)
-                if uid > 0:
-                    linked = f'<a href="tg://user?id={uid}">{safe_display}</a>'
-                elif username and re.fullmatch(r"[A-Za-z0-9_]{5,32}", username):
-                    linked = f'<a href="https://t.me/{username}">{safe_display}</a>'
+                if username and re.fullmatch(r"[A-Za-z0-9_]{5,32}", username):
+                    linked = f'<a href="https://t.me/{escape(username, quote=True)}">{safe_display}</a>'
                 else:
                     linked = safe_display
                 raw_role = str(mod.get("role_label") or mod.get("role") or "модератор").strip()
@@ -1947,18 +1943,21 @@ def admin_inline_keyboard() -> InlineKeyboardMarkup:
     ])
 
 def profile_link(user_id: int, name: str) -> str:
-    """Clickable Telegram profile link without creating a mention notification."""
-    safe = escape(str(name or "пользователь"))
-    if int(user_id or 0) > 0:
-        return f'<a href="tg://user?id={int(user_id)}">{safe}</a>'
+    """Clickable non-pinging profile link when the display value contains a username."""
+    raw = str(name or "пользователь").strip()
+    safe = escape(raw)
+    username = raw.lstrip("@") if raw.startswith("@") else ""
+    if username and re.fullmatch(r"[A-Za-z0-9_]{5,32}", username):
+        return f'<a href="https://t.me/{escape(username, quote=True)}">{safe}</a>'
+    # A tg://user?id link can notify users. Without a username, plain text is safer.
     return safe
 
 def mention(user_id: int, name: str) -> str:
-    """Render a clickable Telegram profile link without sending a notification."""
+    """Render a clickable non-pinging profile link when a username is available."""
     return profile_link(user_id, name)
 
 def call_mention(user_id: int, name: str) -> str:
-    """Clickable Telegram mention reserved exclusively for the explicit mass-call command."""
+    """Notifying mention reserved exclusively for the explicit mass-call command."""
     safe = escape(str(name or "Участник"))
     if int(user_id or 0) > 0:
         return f'<a href="tg://user?id={int(user_id)}">{safe}</a>'
@@ -2211,26 +2210,29 @@ async def is_owner(user_id: int) -> bool:
 
 _CHAT_MEMBER_CACHE: dict[tuple[int, int], tuple[Any | None, float]] = {}
 _CHAT_MEMBER_CACHE_TTL = 60.0
+_CHAT_MEMBER_FAILURE_TTL = 1.5
+_CHAT_MEMBER_REQUEST_TIMEOUT = 1.2
 
 async def get_chat_member_cached(bot: Bot, chat_id: int, user_id: int) -> Any | None:
-    """Avoid duplicate Telegram getChatMember round-trips for the same command."""
+    """Reuse confirmed membership and bound cold Telegram checks to a short request."""
     key = (chat_id, user_id)
     now = time.monotonic()
     cached = _CHAT_MEMBER_CACHE.get(key)
-    if cached and now - cached[1] < _CHAT_MEMBER_CACHE_TTL:
-        return cached[0]
+    if cached:
+        ttl = _CHAT_MEMBER_CACHE_TTL if cached[0] is not None else _CHAT_MEMBER_FAILURE_TTL
+        if now - cached[1] < ttl:
+            return cached[0]
     try:
-        member = await bot.get_chat_member(chat_id, user_id)
+        member = await bot.get_chat_member(
+            chat_id, user_id, request_timeout=_CHAT_MEMBER_REQUEST_TIMEOUT
+        )
     except (TelegramBadRequest, TelegramForbiddenError):
         _CHAT_MEMBER_CACHE[key] = (None, now)
         return None
     except Exception as exc:
-        # A transient Telegram timeout must not bubble into the generic
-        # "internal bot error" handler. Fail closed: callers must not perform
-        # a moderation/profile mutation without a confirmed membership check.
         log.warning(
-            "Telegram getChatMember failed; refusing unverified member check chat=%s user=%s error=%s: %s",
-            chat_id, user_id, type(exc).__name__, str(exc)[:250],
+            "Telegram getChatMember failed fast; refusing unverified member check chat=%s user=%s error=%s: %s",
+            chat_id, user_id, type(exc).__name__, str(exc)[:180],
         )
         _CHAT_MEMBER_CACHE[key] = (None, now)
         return None
@@ -2253,39 +2255,23 @@ async def is_current_chat_member(chat_id: int, user_id: int) -> bool:
     return member.status not in {ChatMemberStatus.LEFT, ChatMemberStatus.KICKED}
 
 async def filter_current_chat_members(chat_id: int, rows: list[dict], user_id_key: str = "user_id") -> list[dict]:
-    """Keep rows for current members; check IDs concurrently with bounded Telegram API load."""
-    unique_ids: list[int] = []
-    seen_ids: set[int] = set()
-    for row in rows:
-        try:
-            uid = int(row.get(user_id_key) or 0)
-        except (TypeError, ValueError):
-            continue
-        if uid > 0 and uid not in seen_ids:
-            seen_ids.add(uid)
-            unique_ids.append(uid)
-    # Bot API has no endpoint to enumerate every group member. Bound checks to
-    # the highest-priority 100 unique IDs to keep leaderboard/list commands responsive.
-    unique_ids = unique_ids[:100]
-    semaphore = asyncio.Semaphore(20)
-
-    async def check(uid: int) -> tuple[int, bool]:
-        async with semaphore:
-            try:
-                return uid, await is_current_chat_member(chat_id, uid)
-            except Exception:
-                log.debug("Could not confirm chat membership chat=%s user=%s", chat_id, uid, exc_info=True)
-                return uid, False
-
-    checked = dict(await asyncio.gather(*(check(uid) for uid in unique_ids)))
+    """Filter known departed users without network requests from read-only list commands."""
+    now = time.monotonic()
     result = []
     for row in rows:
         try:
             uid = int(row.get(user_id_key) or 0)
         except (TypeError, ValueError):
             continue
-        if uid > 0 and checked.get(uid, False):
-            result.append(row)
+        if uid <= 0:
+            continue
+        cached = _CHAT_MEMBER_CACHE.get((int(chat_id), uid))
+        # Unknown membership is not a reason to stall a leaderboard or directory.
+        # Rows come from activity/profiles recorded in this chat.
+        if cached and cached[0] is not None and now - cached[1] < _CHAT_MEMBER_CACHE_TTL:
+            if cached[0].status in {ChatMemberStatus.LEFT, ChatMemberStatus.KICKED}:
+                continue
+        result.append(row)
     return result
 
 async def is_admin(bot: Bot, chat_id: int, user_id: int) -> bool:
@@ -3340,27 +3326,26 @@ async def check_mod(message: Message, min_rank: int = 2, require_restrict: bool 
         return False
     if not require_restrict:
         return True
-    # Always fetch live bot status here; a cached "not admin" result can become
-    # stale immediately after an administrator grants permissions in Telegram.
-    try:
-        member = await bot.get_chat_member(message.chat.id, bot.id)
-        _CHAT_MEMBER_CACHE[(message.chat.id, bot.id)] = (member, time.monotonic())
-    except TelegramForbiddenError:
-        await message.answer("⛔ <b>Нет доступа к чату</b>\\nДобавь бота обратно в группу и повтори команду.")
+    # Reuse the bot permission cache instead of forcing a live Telegram request
+    # for every moderation command. The forced request caused 5-15s delays on loss.
+    member = await get_chat_member_cached(bot, message.chat.id, bot.id)
+    if member is None:
+        await message.answer(
+            "⚠️ <b>Telegram сейчас не подтвердил права бота.</b> "
+            "Команда не выполнена; повтори попытку через пару секунд."
+        )
         return False
-    except TelegramBadRequest as exc:
-        log.warning("Live bot status check failed chat=%s: %s", message.chat.id, str(exc)[:250])
-        await message.answer("⚠️ <b>Telegram не подтвердил права бота</b>\\nПроверь, что бот состоит в группе. Если его только что назначили администратором, подожди несколько секунд и повтори команду.")
-        return False
-    except Exception as exc:
-        log.warning("Unexpected live bot status check failure chat=%s error=%s: %s", message.chat.id, type(exc).__name__, str(exc)[:250])
-        await message.answer("⚠️ <b>Не удалось проверить права через Telegram</b>\\nНичего не выполнено. Повтори попытку чуть позже.")
-        return False
-    if not member or member.status not in (ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.CREATOR):
-        await message.answer("⛔ <b>Боту нужны права администратора</b>\\nВключи администраторский статус GDE.WTF в настройках группы.")
+    if member.status not in (ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.CREATOR):
+        await message.answer(
+            "⛔ <b>Боту нужны права администратора</b>\\n"
+            "Включи администраторский статус GDE.WTF в настройках группы."
+        )
         return False
     if member.status == ChatMemberStatus.ADMINISTRATOR and not getattr(member, "can_restrict_members", False):
-        await message.answer("⛔ <b>Не хватает права на муты</b>\\nВключи «Блокировка пользователей» / «Ограничение участников» для GDE.WTF.")
+        await message.answer(
+            "⛔ <b>Не хватает права на муты и блокировки</b>\\n"
+            "Включи право ограничения участников для GDE.WTF."
+        )
         return False
     return True
 
@@ -4971,13 +4956,8 @@ async def list_chat_nicknames_cmd(message: Message) -> None:
             # HTTPS profile links are clickable and do not create mention entities.
             linked_nick = f'<a href="https://t.me/{escape(username, quote=True)}">{nick}</a>'
         else:
-            # A tg:// URL inside an HTML text_link is a clickable profile link,
-            # unlike a text_mention entity it does not ping the member.
-            try:
-                uid = int(row.get("user_id") or 0)
-            except (TypeError, ValueError):
-                uid = 0
-            linked_nick = f'<a href="tg://user?id={uid}">{nick}</a>' if uid > 0 else nick
+            # Without a username there is no reliable non-pinging public profile URL.
+            linked_nick = nick
         lines.append(f"<b>{index:02}.</b>  {linked_nick}")
     chunks: list[str] = []
     current = ""
@@ -7019,7 +6999,10 @@ async def inline_menu_callback(callback: CallbackQuery) -> None:
             for admin in admins[:40]:
                 member = admin.user
                 label = escape(member.full_name or str(member.id))
-                rows.append(f"• <a href=\"tg://user?id={member.id}\">{label}</a>")
+                if member.username and re.fullmatch(r"[A-Za-z0-9_]{5,32}", member.username):
+                    rows.append(f'• <a href="https://t.me/{escape(member.username, quote=True)}">{label}</a>')
+                else:
+                    rows.append(f"• {label}")
             body = "\n".join(rows) if len(rows) > 1 else "🛡 Список администраторов пуст."
         except Exception:
             body = "🛡 Не удалось получить список администраторов. Проверьте доступ бота к чату."
@@ -7956,7 +7939,7 @@ async def _configure_telegram_menu(
 
 async def main() -> None:
     global _SCHEMA_PROBLEMS
-    log.info("GDE.WTF build tag: global-low-latency-pool-20261027-r1")
+    log.info("GDE.WTF build tag: global-fast-moderation-and-nonping-20261027-r2")
     # Do not change Telegram bot profile fields on every process start. Telegram
     # rate-limits setMyName/setMyDescription; branding should be configured once
     # manually, not repeated during host restarts/deployments.
@@ -8247,7 +8230,7 @@ async def who_is_cmd(message: Message) -> None:
     name = str(user.get("first_name") or target.get("first_name") or "Участник")
     username = str(user.get("username") or target.get("username") or "").strip().lstrip("@")
     display = profile_link(uid, name) if uid > 0 else escape(name)
-    uname = f"@{escape(username)}" if username else "не указан"
+    uname = f"<code>@{escape(username)}</code>" if username else "не указан"
     # Consistent compact visual hierarchy; profile_link is clickable but does not notify.
     await message.answer(
         "🪪 <b>ПРОФИЛЬ УЧАСТНИКА</b>\n"
