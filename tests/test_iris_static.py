@@ -93,7 +93,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         warns_end = self.source.index('@router.message(F.text == "🛡 Кто админ")', warns_start)
         warns_body = self.source[warns_start:warns_end]
         self.assertIn("actor_name = custom_names.get(actor_id) or names.get(actor_id)", warns_body)
-        self.assertIn("profile_link(actor_id, actor_name)", warns_body)
+        self.assertIn("profile_link(actor_id, actor_name, usernames.get(actor_id))", warns_body)
 
     def test_chat_nickname_lookup_supports_reply_username_and_id(self):
         self.assertIn("async def show_chat_nickname_cmd", self.source)
