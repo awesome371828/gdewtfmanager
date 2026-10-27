@@ -462,6 +462,12 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn('verified_after_timeout', body)
         self.assertIn('await _gdewtf_safe_answer(message,', body)
 
+    def test_aiogram_session_does_not_pass_unsupported_connector_options(self):
+        # AiohttpSession forwards kwargs to aiogram BaseSession; `family` is an
+        # aiohttp TCPConnector option, not a supported AiohttpSession argument.
+        self.assertNotIn("family=socket.AF_INET6", self.source)
+        self.assertEqual(self.source.count("AiohttpSession(timeout=5, limit=500)"), 2)
+
     def test_owner_ping_uses_one_bounded_telegram_probe_and_parallel_db_probe(self):
         start = self.source.index("async def owner_ping(")
         end = self.source.index('@router.message(Command("diag"', start)
