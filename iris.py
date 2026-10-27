@@ -2211,7 +2211,7 @@ async def is_owner(user_id: int) -> bool:
 _CHAT_MEMBER_CACHE: dict[tuple[int, int], tuple[Any | None, float]] = {}
 _CHAT_MEMBER_CACHE_TTL = 60.0
 _CHAT_MEMBER_FAILURE_TTL = 1.5
-_CHAT_MEMBER_REQUEST_TIMEOUT = 1.2
+_CHAT_MEMBER_REQUEST_TIMEOUT = 0.9
 
 async def get_chat_member_cached(bot: Bot, chat_id: int, user_id: int) -> Any | None:
     """Reuse confirmed membership and bound cold Telegram checks to a short request."""
