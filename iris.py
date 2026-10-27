@@ -113,7 +113,9 @@ try:
 except ValueError:
     OWNER_ID = 0
 
-_TIMEOUT = aiohttp.ClientTimeout(total=8, connect=3, sock_read=5)
+# Fail fast when the external GDE.WTF API is unreachable; don't hold a command
+# open for eight seconds. Reused keep-alive connections make healthy requests fast.
+_TIMEOUT = aiohttp.ClientTimeout(total=4, connect=1.5, sock_read=2.5)
 # Reuse keep-alive connections to avoid a fresh DNS/TCP/TLS handshake on every
 # command. The API session is closed cleanly with the bot during shutdown.
 _API_SESSION: aiohttp.ClientSession | None = None
@@ -232,7 +234,7 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
                 return data
     except asyncio.TimeoutError as exc:
         log_gdewtf.warning(
-            "GDE.WTF API timeout (%s %s, base=%s, total=8s)", method, path, API_BASE
+            "GDE.WTF API timeout (%s %s, base=%s, total=4s)", method, path, API_BASE
         )
         return {"ok": False, "error": "api_unavailable", "detail": "timeout"}
     except aiohttp.ClientConnectorError as exc:
@@ -287,10 +289,10 @@ def _error_text(data: dict[str, Any]) -> str:
     if err == "api_unavailable" and detail == "connection":
         return "Не удалось подключиться к GDE.WTF (DNS/TCP/TLS). Проверь доступность домена с хоста Relax Dev."
     if err == "api_unavailable" and detail == "timeout":
-        return "GDE.WTF не ответил за 8 секунд. Это тайм-аут внешнего API."
+        return "GDE.WTF не ответил за 4 секунды. Это тайм-аут внешнего API."
     messages = {
         "api_key_not_configured": "Не задан секрет GDEWTF_API_KEY в окружении хоста.",
-        "api_unavailable": "GDE.WTF API недоступен или не ответил за 8 секунд.",
+        "api_unavailable": "GDE.WTF API недоступен или не ответил за 4 секунды.",
         "unauthorized": "Ключ GDE.WTF отклонён. Проверь GDEWTF_API_KEY.",
         "not_found": "Модератор не найден.",
         "not_a_moderator": "Этот аккаунт не является модератором.",
@@ -1403,11 +1405,10 @@ if DATABASE_URL:
 else:
     raise RuntimeError("Запуск без постоянной БД запрещён: не задан DATABASE_URL. Проверь PostgreSQL в переменных окружения RelaxDev.")
 
-# Telegram API calls can occasionally take several seconds on the hosting network.
-# A 4-second timeout was too aggressive: ordinary replies such as /start failed
-# during brief routing/TLS stalls. Keep polling's 35s session timeout separate,
-# and allow regular API methods up to 15s before aiogram reports a network error.
-_TELEGRAM_API_TIMEOUT = 15
+# Bound ordinary Telegram API calls so a network stall cannot freeze a command
+# for 15 seconds. This is a failure ceiling, not a latency target: real latency
+# depends on Telegram and the host's routing and cannot be forced to 50 ms.
+_TELEGRAM_API_TIMEOUT = 3
 
 class LowLatencyBot(Bot):
     async def __call__(self, method, request_timeout=None):
