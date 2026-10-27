@@ -8992,6 +8992,11 @@ async def run_forever() -> None:
             await main()
             if _SHUTDOWN_EVENT.is_set():
                 log.info("Shutdown signal received; bot stopped cleanly")
+                try:
+                    await asyncio.to_thread(db.close)
+                    log.info("PostgreSQL connection pool closed cleanly")
+                except Exception:
+                    log.exception("Could not close PostgreSQL connection pool")
                 return
             failures = 0
             log.error("Telegram polling stopped unexpectedly; restarting in %.0fs", delay)
