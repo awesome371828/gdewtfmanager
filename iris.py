@@ -12,7 +12,6 @@ import difflib
 import json
 import platform
 import random
-import socket
 import sys
 from io import BytesIO
 from html import escape
@@ -1422,7 +1421,7 @@ class LowLatencyBot(Bot):
 # GetUpdates requests, Telegram flood control, and long periods with no replies.
 bot = LowLatencyBot(
     BOT_TOKEN,
-    session=AiohttpSession(timeout=5, limit=500, family=socket.AF_INET6),
+    session=AiohttpSession(timeout=5, limit=500),
     default=DefaultBotProperties(parse_mode=ParseMode.HTML, link_preview_is_disabled=True),
 )
 dp = Dispatcher()
@@ -9025,7 +9024,7 @@ async def run_forever() -> None:
                 # silently restore aiogram's 60-second default.
                 bot = LowLatencyBot(
                     BOT_TOKEN,
-                    session=AiohttpSession(timeout=5, limit=500, family=socket.AF_INET6),
+                    session=AiohttpSession(timeout=5, limit=500),
                     default=DefaultBotProperties(
                         parse_mode=ParseMode.HTML, link_preview_is_disabled=True
                     ),
