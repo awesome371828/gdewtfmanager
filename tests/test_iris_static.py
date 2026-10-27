@@ -111,7 +111,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         warns_end = self.source.index('@router.message(F.text == "🛡 Кто админ")', warns_start)
         warns_body = self.source[warns_start:warns_end]
         self.assertIn("filter_current_chat_members", warns_body)
-        self.assertIn("profile_link(uid, display_name)", warns_body)
+        self.assertIn("profile_link(uid, display_name, usernames.get(uid))", warns_body)
         self.assertNotIn("call_mention(", warns_body)
         nick_start = self.source.index("async def list_chat_nicknames_cmd")
         nick_end = self.source.index('@router.message(Command("logs"))', nick_start)
@@ -385,7 +385,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         member_start = self.source.index("async def get_chat_member_cached")
         member_end = self.source.index("async def is_current_chat_member", member_start)
         member_body = self.source[member_start:member_end]
-        self.assertIn("Telegram getChatMember failed; refusing unverified member check", member_body)
+        self.assertIn("Telegram getChatMember failed fast; refusing unverified member check", member_body)
         self.assertIn("_CHAT_MEMBER_CACHE[key] = (None, now)", member_body)
 
     def test_removed_marriage_feature_is_not_advertised_as_working(self):
