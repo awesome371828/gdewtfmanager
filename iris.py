@@ -7210,11 +7210,11 @@ async def owner_ping(message: Message) -> None:
                     # 2-3 seconds and amplified transient network stalls.
                     started = time.perf_counter()
                     try:
-                        await bot.get_me(request_timeout=1.2)
+                        await bot.get_me(request_timeout=0.8)
                         elapsed_ms = (time.perf_counter() - started) * 1000
                         return f"{elapsed_ms:.0f} мс · один замер"
                     except asyncio.TimeoutError:
-                        return "тайм-аут (>1200 мс)"
+                        return "тайм-аут (>800 мс)"
                     except Exception as exc:
                         return f"ошибка ({type(exc).__name__})"
 
