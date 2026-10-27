@@ -697,6 +697,8 @@ async def _gdewtf_authorize(user_id: int, action: str, username: str | None = No
     # linked Telegram identity. Mutations and all panel buttons are controller-only.
     # Prefix used by callback authorization prevents buttons from falling into the
     # read-only command allowlist even when the button opens a read-only section.
+    # Legacy role-only predicate _gdewtf_is_owner_or_chief(mod) is intentionally
+    # insufficient here: only the two explicit public codes may mutate the project.
     if action in _GDEWTF_READONLY_ACTIONS:
         return True, ""
     if not _gdewtf_is_designated_controller(mod):
@@ -1283,6 +1285,9 @@ async def gdewtf_panel_callback(callback: CallbackQuery) -> None:
     try:
         # Never trust the 30-second command cache for button clicks: project access
         # may have been revoked since the menu was sent. Recheck the live GDE.WTF profile.
+        # The old read-only authorization call was:
+        # await _gdewtf_authorize(callback.from_user.id, auth_action, callback.from_user.username)
+        # Prefixing the action makes every button controller-only.
         authorized, denial = await _gdewtf_authorize(callback.from_user.id, "panel_button:" + auth_action, callback.from_user.username)
         if not authorized:
             # Reject the callback without sending a chat message; unauthorized users
