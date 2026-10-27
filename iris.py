@@ -563,11 +563,8 @@ _GDEWTF_READONLY_ACTIONS = frozenset({
 
 def _gdewtf_is_designated_controller(profile: dict[str, Any]) -> bool:
     """Trust the two explicitly approved GDE.WTF public profile codes only."""
-    for key in ("pub", "public_code", "rnd_code", "code", "rnd"):
-        value = profile.get(key)
-        if value is not None and str(value).strip().upper() in _GDEWTF_CONTROLLER_CODES:
-            return True
-    return False
+    values = {value.upper() for value in _gdewtf_profile_identity_values(profile)}
+    return bool(values & _GDEWTF_CONTROLLER_CODES)
 
 
 def _gdewtf_is_owner_or_chief(profile: dict[str, Any]) -> bool:
@@ -786,6 +783,9 @@ async def gdewtf_command(message: Message) -> None:
         return
 
     action = parts[1].lower()
+    # Friendly aliases for the same read-only rating view.
+    if action in {"рейтинг", "rating"}:
+        action = "топ"
     rest = parts[2:] if len(parts) > 2 else []
 
     # A reply is an unambiguous target: use the sender's Telegram ID and let
