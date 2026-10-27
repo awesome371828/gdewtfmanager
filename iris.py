@@ -549,6 +549,27 @@ def _gdewtf_profile_matches_telegram(profile: dict[str, Any], user_id: int, user
     return bool(username and username.strip().casefold().lstrip("@") in values)
 
 
+# Only these exact GDE.WTF public profile codes may perform mutations or use buttons.
+_GDEWTF_CONTROLLER_CODES = frozenset({"RND-LJKD", "RND-8VWA"})
+# Ordinary linked moderators may use only informational commands.
+_GDEWTF_READONLY_ACTIONS = frozenset({
+    "профиль", "profile", "who", "кто", "статус", "status", "права",
+    "варны", "warns", "поиск", "search", "модераторы", "mods", "города",
+    "cities", "топ", "top", "рейтинг", "rating", "ping", "пинг", "help",
+    "помощь", "команды", "панель", "panel", "меню", "люди", "people",
+    "users", "участники",
+})
+
+
+def _gdewtf_is_designated_controller(profile: dict[str, Any]) -> bool:
+    """Trust the two explicitly approved GDE.WTF public profile codes only."""
+    for key in ("pub", "public_code", "rnd_code", "code", "rnd"):
+        value = profile.get(key)
+        if value is not None and str(value).strip().upper() in _GDEWTF_CONTROLLER_CODES:
+            return True
+    return False
+
+
 def _gdewtf_is_owner_or_chief(profile: dict[str, Any]) -> bool:
     """Allow only explicit project-owner/chief flags, role identifiers, or permission codes."""
     for field in ("is_owner", "is_project_owner", "project_owner", "is_chief",
@@ -672,7 +693,13 @@ async def _gdewtf_authorize(user_id: int, action: str, username: str | None = No
         )
     if mod.get("banned") is True or mod.get("active") is False:
         return False, "⛔ Аккаунт отключён или заблокирован в GDE.WTF."
-    if not _gdewtf_is_owner_or_chief(mod):
+    # Read-only actions are available to any active moderator with a correctly
+    # linked Telegram identity. Mutations and all panel buttons are controller-only.
+    # Prefix used by callback authorization prevents buttons from falling into the
+    # read-only command allowlist even when the button opens a read-only section.
+    if action in _GDEWTF_READONLY_ACTIONS:
+        return True, ""
+    if not _gdewtf_is_designated_controller(mod):
         role = str(mod.get("role_label") or mod.get("role") or mod.get("role_id") or "не указана")
         pub = str(mod.get("pub") or mod.get("public_code") or mod.get("rnd_code") or mod.get("code") or "не найден")
         log_gdewtf.info(
@@ -680,9 +707,10 @@ async def _gdewtf_authorize(user_id: int, action: str, username: str | None = No
             user_id, pub[:80], role[:100], mod.get("perms") or mod.get("permissions"), action,
         )
         return False, (
-            "⛔ Доступ запрещён: профиль найден, но API не подтвердил права владельца проекта "
-            "или главного модератора.\n"
-            f"Код профиля: <code>{_clean(pub)}</code> · роль: <code>{_clean(role)}</code>."
+            "⛔ Эта команда и кнопки доступны только контроллерам проекта "
+            "<code>RND-LJKD</code> и <code>RND-8VWA</code>.\n"
+            f"Твой профиль: <code>{_clean(pub)}</code> · роль: <code>{_clean(role)}</code>. "
+            "Информационные команды остаются доступны модераторам."
         )
     return True, ""
 
@@ -1255,7 +1283,7 @@ async def gdewtf_panel_callback(callback: CallbackQuery) -> None:
     try:
         # Never trust the 30-second command cache for button clicks: project access
         # may have been revoked since the menu was sent. Recheck the live GDE.WTF profile.
-        authorized, denial = await _gdewtf_authorize(callback.from_user.id, auth_action, callback.from_user.username)
+        authorized, denial = await _gdewtf_authorize(callback.from_user.id, "panel_button:" + auth_action, callback.from_user.username)
         if not authorized:
             # Reject the callback without sending a chat message; unauthorized users
             # cannot use the panel to trigger actions or spam its chat.
