@@ -9025,7 +9025,7 @@ async def run_forever() -> None:
                 # silently restore aiogram's 60-second default.
                 bot = LowLatencyBot(
                     BOT_TOKEN,
-                    session=AiohttpSession(timeout=5, limit=500),
+                    session=AiohttpSession(timeout=5, limit=500, family=socket.AF_INET6),
                     default=DefaultBotProperties(
                         parse_mode=ParseMode.HTML, link_preview_is_disabled=True
                     ),
