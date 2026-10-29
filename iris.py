@@ -752,41 +752,29 @@ async def _gdewtf_authorize(user_id: int, action: str, username: str | None = No
     return True, ""
 
 async def _gdewtf_safe_answer(message: Message, *args: Any, **kwargs: Any) -> bool:
-    """Send a GDE.WTF reply with a short timeout and one bounded transport retry."""
-    # A stalled Telegram request should not consume the global 15-second timeout.
-    # Retrying sendMessage can rarely duplicate a reply if Telegram accepted the
-    # first request but its response was lost.
+    """Send one bounded reply; never retry an ambiguous sendMessage timeout."""
+    # Telegram may have accepted sendMessage even if the response was lost.
+    # Retrying here can create duplicate replies, so fail fast and log instead.
     kwargs["request_timeout"] = 2.0
-    for attempt in range(2):
-        try:
-            await message.answer(*args, **kwargs)
-            return True
-        except (asyncio.TimeoutError, TelegramNetworkError) as exc:
-            if attempt == 0:
-                log_gdewtf.warning(
-                    "Telegram reply transport failed; retrying once "
-                    "(chat_id=%s, message_id=%s, error=%s)",
-                    getattr(getattr(message, "chat", None), "id", None),
-                    getattr(message, "message_id", None),
-                    type(exc).__name__,
-                )
-                await asyncio.sleep(0.1)
-                continue
-            log_gdewtf.warning(
-                "Could not deliver GDE.WTF command reply after retry "
-                "(chat_id=%s, message_id=%s, error=%s)",
-                getattr(getattr(message, "chat", None), "id", None),
-                getattr(message, "message_id", None),
-                type(exc).__name__,
-            )
-        except Exception:
-            log_gdewtf.exception(
-                "Could not deliver GDE.WTF command reply (chat_id=%s, message_id=%s)",
-                getattr(getattr(message, "chat", None), "id", None),
-                getattr(message, "message_id", None),
-            )
-            return False
-    return False
+    try:
+        await message.answer(*args, **kwargs)
+        return True
+    except (asyncio.TimeoutError, TelegramNetworkError) as exc:
+        log_gdewtf.warning(
+            "Could not confirm delivery of GDE.WTF command reply; not retrying "
+            "(chat_id=%s, message_id=%s, error=%s)",
+            getattr(getattr(message, "chat", None), "id", None),
+            getattr(message, "message_id", None),
+            type(exc).__name__,
+        )
+        return False
+    except Exception:
+        log_gdewtf.exception(
+            "Could not deliver GDE.WTF command reply (chat_id=%s, message_id=%s)",
+            getattr(getattr(message, "chat", None), "id", None),
+            getattr(message, "message_id", None),
+        )
+        return False
 
 
 @gdewtf_router.message(F.text.startswith("!"))
