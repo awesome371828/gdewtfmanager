@@ -330,7 +330,7 @@ def _error_text(data: dict[str, Any]) -> str:
         return "GDE.WTF не ответил за 1,8 секунды. Это тайм-аут внешнего API."
     messages = {
         "api_key_not_configured": "Не задан секрет GDEWTF_API_KEY в окружении хоста.",
-        "api_unavailable": "GDE.WTF API недоступен или не ответил за 4 секунды.",
+        "api_unavailable": "GDE.WTF API недоступен или не ответил за 1,8 секунды.",
         "unauthorized": "Ключ GDE.WTF отклонён. Проверь GDEWTF_API_KEY.",
         "not_found": "Модератор не найден.",
         "not_a_moderator": "Этот аккаунт не является модератором.",
