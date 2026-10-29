@@ -229,12 +229,15 @@ class PostgresClient:
             configured_max = 16
         self.pool = ConnectionPool(
             conninfo=self.dsn,
-            min_size=1,
-            max_size=max(4, min(16, configured_max)),
-            timeout=3.0,
+            # Keep a few warm connections ready so the first concurrent commands
+            # do not queue behind a single connection. Cap the pool to protect the
+            # small bot container while allowing parallel moderation/profile reads.
+            min_size=3,
+            max_size=max(8, min(24, configured_max)),
+            timeout=1.5,
             max_idle=300.0,
             kwargs={
-                "connect_timeout": 4,
+                "connect_timeout": 3,
                 "sslmode": "disable",
                 "row_factory": dict_row,
             },
