@@ -477,6 +477,15 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn("not isinstance(method, GetUpdates)", self.source[start:end])
         self.assertIn("request_timeout = _TELEGRAM_API_TIMEOUT", self.source[start:end])
 
+    def test_gdewtf_reply_timeout_is_not_retried_to_avoid_duplicate_messages(self):
+        start = self.source.index("async def _gdewtf_safe_answer")
+        end = self.source.index("\n\n", self.source.index("return False", start))
+        helper = self.source[start:end]
+        self.assertIn('kwargs["request_timeout"] = 2.0', helper)
+        self.assertIn("not retrying", helper)
+        self.assertNotIn("for attempt in range", helper)
+        self.assertEqual(helper.count("await message.answer(*args, **kwargs)"), 1)
+
     def test_owner_ping_uses_one_bounded_telegram_probe_and_parallel_db_probe(self):
         start = self.source.index("async def owner_ping(")
         end = self.source.index('@router.message(Command("diag"', start)
