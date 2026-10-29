@@ -242,6 +242,10 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
                 if response.status >= 400:
                     data.setdefault("ok", False)
                     data.setdefault("http_status", response.status)
+                if not data.get("ok") and cache_key is not None:
+                    stale = _gdewtf_stale_read(cache_key, normalized_path)
+                    if stale is not None:
+                        return stale
                 # Cache only successful GET responses. Error states and writes are never cached.
                 if cache_key is not None and data.get("ok"):
                     _GDEWTF_API_CACHE[cache_key] = (time.monotonic(), dict(data))
@@ -8201,7 +8205,7 @@ async def _configure_telegram_menu(
 
 async def main() -> None:
     global _SCHEMA_PROBLEMS
-    log.info("GDE.WTF build tag: global-fast-moderation-and-nonping-20261027-r5")
+    log.info("GDE.WTF build tag: global-fast-moderation-and-nonping-20261029-r1")
     # Do not change Telegram bot profile fields on every process start. Telegram
     # rate-limits setMyName/setMyDescription; branding should be configured once
     # manually, not repeated during host restarts/deployments.
