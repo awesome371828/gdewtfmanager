@@ -1667,10 +1667,10 @@ if DATABASE_URL:
 else:
     raise RuntimeError("Запуск без постоянной БД запрещён: не задан DATABASE_URL. Проверь PostgreSQL в переменных окружения RelaxDev.")
 
-# Keep ordinary Telegram API calls bounded, but allow enough time for transient
-# TLS/TCP stalls on the hosting route. A shorter timeout does not make healthy
-# requests faster; it only turns temporary network jitter into failed commands.
-_TELEGRAM_API_TIMEOUT = 6
+# Bound ordinary Telegram API calls so a stalled send cannot block a command
+# for 6–7 seconds. Long polling uses its own longer session timeout below.
+# This cannot repair an upstream Telegram/network outage, but it caps the impact.
+_TELEGRAM_API_TIMEOUT = 3
 
 class LowLatencyBot(Bot):
     async def __call__(self, method, request_timeout=None):
