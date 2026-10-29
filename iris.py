@@ -497,8 +497,7 @@ def _gdewtf_profile_identity_values(profile: dict[str, Any]) -> set[str]:
     """Collect Telegram IDs, usernames, and RND codes from API profile variants."""
     keys = {
         "id", "tg_id", "telegram_id", "user_id", "telegram_user_id",
-        "username", "telegram_username", "login", "pub", "public_code",
-        "rnd", "rnd_code", "code", "nick", "name", "display_name",
+        "username", "telegram_username", "login", "pub", "public_code",        "rnd", "rnd_code", "code", "nick", "name", "display_name",
     }
     values: set[str] = set()
     def walk(obj: Any, depth: int = 0) -> None:
@@ -740,6 +739,8 @@ async def _gdewtf_authorize(user_id: int, action: str, username: str | None = No
         )
     if mod.get("banned") is True or mod.get("active") is False:
         return False, "⛔ Аккаунт отключён или заблокирован в GDE.WTF."
+    # Cache only a positively resolved, identity-verified active profile.
+    _GDEWTF_ACCESS_CACHE[user_id] = (time.monotonic(), mod)
     # Read-only actions are available to any active moderator with a correctly
     # linked Telegram identity. Mutations and all panel buttons are controller-only.
     # Prefix used by callback authorization prevents buttons from falling into the
@@ -997,8 +998,7 @@ async def gdewtf_command(message: Message) -> None:
                 return
             data = await _api("GET", "/mods")
             if not data.get("ok"):
-                await _gdewtf_safe_answer(message, "⚠️ " + _error_text(data))
-                return
+                await _gdewtf_safe_answer(message, "⚠️ " + _error_text(data))                return
             mods: list[dict[str, Any]] = []
             for key in ("mods", "moderators", "items", "results", "data"):
                 value = data.get(key)
@@ -1497,8 +1497,7 @@ async def gdewtf_command(message: Message) -> None:
             elif action in {"ник", "nick"}:
                 result = f"✅ Ник обновлён: <b>{_clean(data.get('nick'))}</b> · <code>{_clean(pub)}</code>"
             elif action in {"город", "city", "амб", "amb", "rgov", "регион", "региональный", "назначить", "modset"}:
-                result = "✅ Изменения сохранены.\n" + (_profile(mod) if mod else f"Модератор: <code>{_clean(pub)}</code>")
-            elif action in {"снять", "modremove"}:
+                result = "✅ Изменения сохранены.\n" + (_profile(mod) if mod else f"Модератор: <code>{_clean(pub)}</code>")            elif action in {"снять", "modremove"}:
                 result = f"✅ Модератор снят с должности · <code>{_clean(pub)}</code>"
             elif action in {"бан", "ban"}:
                 result = f"🚫 Аккаунт заблокирован · <code>{_clean(pub)}</code>"
@@ -1997,8 +1996,7 @@ class CommandRateLimitMiddleware(BaseMiddleware):
             return None
         command_match = re.match(r"^([/!.][\w]+)(?:@\w+)?", text_value, re.I)
         plain_match = re.match(
-            r"^(мут|бан|кик|варн|размут|анмут|разбан|очистить|профиль|команды|помощь)(?:\s|$)",
-            text_value, re.I,
+            r"^(мут|бан|кик|варн|размут|анмут|разбан|очистить|профиль|команды|помощь)(?:\s|$)",            text_value, re.I,
         )
         if not command_match and not plain_match:
             return await handler(event, data)
@@ -2497,8 +2495,7 @@ async def get_chat_member_cached(bot: Bot, chat_id: int, user_id: int) -> Any | 
     except (TelegramBadRequest, TelegramForbiddenError):
         _CHAT_MEMBER_CACHE[key] = (None, now)
         return None
-    except Exception as exc:
-        log.warning(
+    except Exception as exc:        log.warning(
             "Telegram getChatMember failed fast; refusing unverified member check chat=%s user=%s error=%s: %s",
             chat_id, user_id, type(exc).__name__, str(exc)[:180],
         )
@@ -2997,8 +2994,7 @@ async def start(message: Message) -> None:
             "💚 Хотите поддержать разработку? Попробуйте мой VPN: "
             '<a href="https://t.me/awesomeproxyvpn_bot">@awesomeproxyvpn_bot</a>. Спасибо за поддержку!'
         )
-    else:
-        # Keep /start fast: do not wait for an extra Telegram getChatMember
+    else:        # Keep /start fast: do not wait for an extra Telegram getChatMember
         # request just to render the welcome message.
         text = (
             f"👋 Бот проекта GDE.WTF подключён к чату <b>{message.chat.title or 'группа'}</b>!\n\n"
@@ -3497,8 +3493,7 @@ async def track_activity(message: Message) -> None:
         cutoff = stamp - _RECENT_CHAT_USERS_TTL
         for old_key, (_, _, old_stamp) in list(_RECENT_CHAT_USERS.items()):
             if old_stamp < cutoff:
-                _RECENT_CHAT_USERS.pop(old_key, None)
-    item = (
+                _RECENT_CHAT_USERS.pop(old_key, None)    item = (
         message.chat.id, message.from_user.id, message.from_user.username,
         message.from_user.full_name, datetime.now(timezone.utc).isoformat(),
         message.message_id,
@@ -3997,8 +3992,7 @@ async def kick_cmd(message: Message) -> None:
 async def warn_cmd(message: Message) -> None:
     # Parse the target explicitly from the original text. The shared argument
     # parser supports many aliases and must not accidentally pass the command word
-    # ("варн") as the target; otherwise resolve_target can match the actor.
-    original = (message.text or message.caption or "").strip()
+    # ("варн") as the target; otherwise resolve_target can match the actor.    original = (message.text or message.caption or "").strip()
     target_tokens = args_after_command(message)
     # For the plain Russian command, strip only the leading command token.
     if original:
@@ -4497,8 +4491,7 @@ async def top_cmd(message: Message) -> None:
             lines = [f"{i}. 🏰 {escape(str(r.get('name','Клан')))} — {counts.get(r.get('name'),0)} участн." for i,r in enumerate(rows[:10],1)]
             await message.answer("<b>🏆 Топ кланов</b>\n" + ("\n".join(lines) if lines else "Пока нет кланов."))
             return
-        if category_key == "members":
-            rows = await asyncio.to_thread(db_rows, "bot_users", 1000, "created_at", chat_id=message.chat.id)
+        if category_key == "members":            rows = await asyncio.to_thread(db_rows, "bot_users", 1000, "created_at", chat_id=message.chat.id)
             rows = await filter_current_chat_members(message.chat.id, rows)
             rows.sort(key=lambda r: str(r.get("created_at") or ""), reverse=True)
             lines = [f"{i}. {profile_link(int(r.get('user_id') or 0), '@'+str(r.get('username')).lstrip('@') if r.get('username') else str(r.get('first_name') or 'Участник'))}" for i,r in enumerate(rows[:10],1) if int(r.get('user_id') or 0) > 0]
@@ -4997,8 +4990,7 @@ async def set_chat_nickname_cmd(message: Message) -> None:
     if message.reply_to_message and message.reply_to_message.from_user and not explicit_target_in_args:
         reply_user = message.reply_to_message.from_user
         if reply_user.is_bot:
-            await message.answer("Нельзя установить ник боту.")
-            return
+            await message.answer("Нельзя установить ник боту.")            return
         target = (reply_user.id, f"@{reply_user.username}" if reply_user.username else reply_user.full_name)
     else:
         is_target_token = explicit_target_in_args
@@ -5497,8 +5489,7 @@ async def promote_rank_cmd(message: Message) -> None:
     if message.from_user and target[0] == message.from_user.id:
         await message.answer("⛔ Нельзя менять собственный ранг.")
         return
-    user, actor_rank_loaded = await asyncio.gather(
-        asyncio.to_thread(db_one, "bot_users", user_id=target[0], chat_id=message.chat.id),
+    user, actor_rank_loaded = await asyncio.gather(        asyncio.to_thread(db_one, "bot_users", user_id=target[0], chat_id=message.chat.id),
         asyncio.to_thread(user_rank, message.chat.id, message.from_user.id if message.from_user else 0),
     )
     user = user or {}
@@ -5997,8 +5988,7 @@ async def auto_moderation_filters(message: Message) -> None:
           f"monitor_only; reason={reason}; message_id={message.message_id}")
     log.info("Spam signal chat=%s user=%s reason=%s message=%s action=%s",
              message.chat.id, message.from_user.id, reason, message.message_id,
-             settings.get("filter_action", "monitor"))
-    # Penalties are disabled by default and run only after a real-admin explicitly configures them.
+             settings.get("filter_action", "monitor"))    # Penalties are disabled by default and run only after a real-admin explicitly configures them.
     await apply_configured_filter_action(message, settings, reason)
 
 # Important: the old track_activity catch-all handler was registered before
@@ -6497,8 +6487,7 @@ def _settings_exportable(settings: dict[str, Any]) -> dict[str, Any]:
     for key, value in settings.items():
         if key in FILTER_DEFAULTS or key.startswith(("modrank_", "warn_")) or key in {
             "welcome_message", "welcome_enabled", "schedule_enabled", "pear_premium", "schedule_open",
-            "schedule_close", "schedule_timezone", "punishment_reasons", "command_cooldown",
-            "flood_limit", "flood_window", "caps_percent", "filter_mute_minutes",
+            "schedule_close", "schedule_timezone", "punishment_reasons", "command_cooldown",            "flood_limit", "flood_window", "caps_percent", "filter_mute_minutes",
             "raid_threshold", "raid_window", "raid_restrict_minutes", "warn_3_action",
             "warn_3_time", "warn_5_action", "warn_5_time", "warn_7_action", "warn_7_time",
             "warn_10_action", "warn_10_time",
@@ -6997,8 +6986,7 @@ async def _schedule_worker() -> None:
                             continue
                         changed = await _apply_scheduled_chat_lock(chat_id, settings, lock)
                         settings[f"_schedule_{mode}_date"] = date_key
-                        if changed:
-                            try:
+                        if changed:                            try:
                                 await bot.send_message(chat_id, "🔒 Чат автоматически закрыт по расписанию." if lock else "🔓 Чат автоматически открыт по расписанию.")
                             except Exception:
                                 pass
@@ -7497,8 +7485,7 @@ async def owner_ping(message: Message) -> None:
     await message.answer(format_panel(
         "ПРОВЕРКА СОЕДИНЕНИЯ",
         f"Telegram API: <b>{telegram}</b>\nPostgreSQL: <b>{db_result}</b>\n<i>Показания обновляются раз в 15 секунд.</i>",
-        "GDE.WTF · технический статус",
-    ))
+        "GDE.WTF · технический статус",    ))
 
 @router.message(Command("diag", "diagnostics"))
 @router.message(F.text.regexp(r"(?i)^\s*диагностика\s*$"))
@@ -7997,7 +7984,6 @@ async def suggestion_cmd(message: Message) -> None:
         await message.answer("Формат: <code>/suggest идея</code>"); return
     row=await asyncio.to_thread(db_insert, "bot_reports", {"chat_id":message.chat.id,"reporter_id":message.from_user.id,"message_id":None,"details":"ПРЕДЛОЖЕНИЕ: "+text_value[:1400],"status":"suggestion","created_at":datetime.now(timezone.utc).isoformat()})
     await message.answer("💡 Предложение сохранено." if row else "Таблица bot_reports недоступна. Примените schema.sql.")
-
 @router.message(Command("quote", "цитата"))
 @router.message(F.text.regexp(r"(?i)^\s*цитата\s*$"))
 async def quote_cmd(message: Message) -> None:
@@ -8497,8 +8483,7 @@ async def who_is_cmd(message: Message) -> None:
     except (TypeError, ValueError):
         msgs = 0
     name = str(user.get("first_name") or target.get("first_name") or "Участник")
-    username = str(user.get("username") or target.get("username") or "").strip().lstrip("@")
-    display = profile_link(uid, name, username) if uid > 0 else escape(name)
+    username = str(user.get("username") or target.get("username") or "").strip().lstrip("@")    display = profile_link(uid, name, username) if uid > 0 else escape(name)
     uname = f"<code>@{escape(username)}</code>" if username else "не указан"
     # Consistent compact visual hierarchy; profile_link is clickable but does not notify.
     await message.answer(
@@ -8997,8 +8982,7 @@ async def gather_cmd(message: Message) -> None:
 
     def load_chat_users() -> list[dict]:
         # Merge three sources: normal profiles, durable message history, and users
-        # seen in this process. bot_activity_events keeps historical writers even
-        # when a profile row was not created or its upsert failed.
+        # seen in this process. bot_activity_events keeps historical writers even        # when a profile row was not created or its upsert failed.
         collected: list[dict] = []
         if db is None:
             collected.extend(db_rows("bot_users", 1000, "last_seen", chat_id=message.chat.id))
