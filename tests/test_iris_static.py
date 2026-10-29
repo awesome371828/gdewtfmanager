@@ -589,9 +589,18 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn('path not in {"/mods", "/cities"}', self.source)
         self.assertIn('max_age = 30.0 if path == "/mods" else 300.0', self.source)
         self.assertIn('stale = _gdewtf_stale_read(cache_key, normalized_path)', self.source)
-        stale_start = self.source.index("def _gdewtf_stale_read(")
-        stale_end = self.source.index("\n\nasync def _api(", stale_start)
-        stale_helper = self.source[stale_start:stale_end]
+        # Locate helpers structurally instead of relying on exact blank lines
+        # or the textual spelling of async function declarations.
+        stale_node = next(
+            node for node in self.tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "_gdewtf_stale_read"
+        )
+        api_node = next(
+            node for node in self.tree.body
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "_api"
+        )
+        source_lines = self.source.splitlines()
+        stale_helper = "\n".join(source_lines[stale_node.lineno - 1:api_node.lineno - 1])
         self.assertNotIn('"/mod"', stale_helper)
         self.assertIn('result["stale_cache"] = True', stale_helper)
 
