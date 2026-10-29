@@ -469,13 +469,16 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertEqual(self.source.count("AiohttpSession(timeout=8, limit=500)"), 2)
 
     def test_ordinary_telegram_requests_have_a_bounded_three_second_timeout(self):
-        # GetUpdates uses the longer session timeout; ordinary calls such as
-        # sendMessage must not hold a handler for 6–7 seconds on network stalls.
+        # Keep ordinary sends bounded while allowing the 25-second GetUpdates
+        # long poll to finish without a premature transport timeout.
         self.assertIn("_TELEGRAM_API_TIMEOUT = 3", self.source)
+        self.assertIn("_TELEGRAM_POLLING_REQUEST_TIMEOUT = 35", self.source)
         start = self.source.index("class LowLatencyBot")
         end = self.source.index("bot = LowLatencyBot(", start)
-        self.assertIn("not isinstance(method, GetUpdates)", self.source[start:end])
-        self.assertIn("request_timeout = _TELEGRAM_API_TIMEOUT", self.source[start:end])
+        body = self.source[start:end]
+        self.assertIn("isinstance(method, GetUpdates)", body)
+        self.assertIn("request_timeout = _TELEGRAM_POLLING_REQUEST_TIMEOUT", body)
+        self.assertIn("request_timeout = _TELEGRAM_API_TIMEOUT", body)
 
     def test_gdewtf_reply_timeout_is_not_retried_to_avoid_duplicate_messages(self):
         start = self.source.index("async def _gdewtf_safe_answer")
