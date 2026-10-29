@@ -466,7 +466,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         # AiohttpSession forwards kwargs to aiogram BaseSession; `family` is an
         # aiohttp TCPConnector option, not a supported AiohttpSession argument.
         self.assertNotIn("family=socket.AF_INET6", self.source)
-        self.assertEqual(self.source.count("AiohttpSession(timeout=5, limit=500)"), 2)
+        self.assertEqual(self.source.count("AiohttpSession(timeout=8, limit=500)"), 2)
 
     def test_owner_ping_uses_one_bounded_telegram_probe_and_parallel_db_probe(self):
         start = self.source.index("async def owner_ping(")
@@ -547,8 +547,8 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         requirements = REQUIREMENTS.read_text(encoding="utf-8")
         self.assertIn("psycopg-pool>=3.2,<4.0", requirements)
         self.assertIn("from psycopg_pool import ConnectionPool", adapter)
-        self.assertIn("min_size=1", adapter)
-        self.assertIn("max_size=max(4, min(16, configured_max))", adapter)
+        self.assertIn("min_size=3", adapter)
+        self.assertIn("max_size=max(8, min(24, configured_max))", adapter)
         self.assertIn("return self.pool.connection()", adapter)
         self.assertNotIn("return psycopg.connect(dsn, connect_timeout=4", adapter)
 
