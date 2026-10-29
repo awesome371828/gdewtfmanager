@@ -139,6 +139,7 @@ def _gdewtf_cache_key(path: str, params: dict[str, Any] | None) -> tuple[str, st
 def _gdewtf_invalidate_api_cache() -> None:
     # Clear all read snapshots after writes so profiles, warns and lists don't stay stale.
     _GDEWTF_API_CACHE.clear()
+    _GDEWTF_ACCESS_CACHE.clear()
 
 
 def _gdewtf_stale_read(
@@ -458,7 +459,7 @@ def _gdewtf_panel_keyboard() -> InlineKeyboardMarkup:
 
 # Short-lived permission cache: avoids an extra GDE.WTF API lookup on every command.
 _GDEWTF_ACCESS_CACHE: dict[int, tuple[float, dict[str, Any]]] = {}
-_GDEWTF_ACCESS_CACHE_TTL = 30.0
+_GDEWTF_ACCESS_CACHE_TTL = 3.0
 _GDEWTF_KNOWN_PERMS = {
     "events", "marks", "users", "beta", "pvo", "maint", "stats", "support", "notice"
 }
@@ -497,8 +498,7 @@ def _gdewtf_profile_identity_values(profile: dict[str, Any]) -> set[str]:
     keys = {
         "id", "tg_id", "telegram_id", "user_id", "telegram_user_id",
         "username", "telegram_username", "login", "pub", "public_code",
-        "rnd", "rnd_code", "code", "nick", "name", "display_name",
-    }
+        "rnd", "rnd_code", "code", "nick", "name", "display_name",    }
     values: set[str] = set()
     def walk(obj: Any, depth: int = 0) -> None:
         if depth > 4 or not isinstance(obj, dict):
@@ -642,56 +642,68 @@ def _gdewtf_is_owner_or_chief(profile: dict[str, Any]) -> bool:
 
 
 async def _gdewtf_authorize(user_id: int, action: str, username: str | None = None) -> tuple[bool, str]:
-    """Resolve Telegram identity and check live project-owner/chief permissions."""
-    queries = [str(user_id)]
-    if username:
-        queries.append("@" + username.lstrip("@"))
-    # A live check is required for every command, but ID and username lookups are
-    # independent. Run them together so a missing ID lookup does not add another
-    # full network timeout before the username lookup.
-    for query in queries:
-        _GDEWTF_API_CACHE.pop(_gdewtf_cache_key("/mod", {"q": query}), None)
-    responses = await asyncio.gather(
-        *(_api("GET", "/mod", params={"q": query}) for query in queries),
-        return_exceptions=True,
-    )
+    """Resolve identity quickly, caching only a successfully verified profile briefly."""
     mod: dict[str, Any] | None = None
     api_errors: list[str] = []
     transport_failure: dict[str, Any] | None = None
-    for query, response in zip(queries, responses):
-        if isinstance(response, BaseException):
-            api_errors.append(f"{query}:{type(response).__name__}")
-            transport_failure = transport_failure or {
-                "ok": False, "error": "api_unavailable", "detail": "connection",
-            }
-            continue
-        candidate = response.get("mod") if isinstance(response.get("mod"), dict) else None
-        if response.get("ok") and candidate:
-            explicit_ids = {
-                str(candidate.get(key)).strip()
-                for key in ("tg_id", "telegram_id", "telegram_user_id", "user_id", "telegramId", "telegramUserId")
-                if candidate.get(key) is not None and str(candidate.get(key)).strip().isdigit()
-            }
-            if explicit_ids and str(user_id) not in explicit_ids:
-                api_errors.append(f"{query}:telegram_identity_mismatch")
-                continue
-            if query != str(user_id) and not _gdewtf_profile_matches_telegram(candidate, user_id, username):
-                api_errors.append(f"{query}:telegram_identity_mismatch")
-                continue
-            mod = candidate
-            break
-        error = str(response.get("error") or ("not_found" if response.get("ok") else "unknown_error"))
-        api_errors.append(f"{query}:{error}")
-        if error in {"api_unavailable", "unauthorized", "invalid_api_response"}:
-            transport_failure = response
 
+    # A tiny positive-only cache removes duplicate network calls when one person
+    # sends several commands in a row. Permission rules are still evaluated below
+    # for every command, and API writes invalidate this cache.
+    cached = _GDEWTF_ACCESS_CACHE.get(user_id)
+    if cached and time.monotonic() - cached[0] < _GDEWTF_ACCESS_CACHE_TTL:
+        candidate = cached[1]
+        if _gdewtf_profile_matches_telegram(candidate, user_id, username):
+            mod = candidate
+        else:
+            _GDEWTF_ACCESS_CACHE.pop(user_id, None)
+    elif cached:
+        _GDEWTF_ACCESS_CACHE.pop(user_id, None)
+
+    timeout = aiohttp.ClientTimeout(total=1.4, connect=0.6, sock_read=1.0)
+
+    async def lookup(query: str) -> dict[str, Any]:
+        _GDEWTF_API_CACHE.pop(_gdewtf_cache_key("/mod", {"q": query}), None)
+        return await _api("GET", "/mod", params={"q": query}, request_timeout=timeout)
+
+    # Start with the stable Telegram ID. Only try the username if the API
+    # definitively says the ID has no profile; never double the delay on timeout.
+    if mod is None:
+        response = await lookup(str(user_id))
+        candidate = response.get("mod") if isinstance(response.get("mod"), dict) else None
+        error = str(response.get("error") or ("not_found" if response.get("ok") else "unknown_error"))
+        if response.get("ok") and candidate:
+            if _gdewtf_profile_matches_telegram(candidate, user_id, username):
+                mod = candidate
+            else:
+                api_errors.append(f"{user_id}:telegram_identity_mismatch")
+        else:
+            api_errors.append(f"{user_id}:{error}")
+            if error in {"api_unavailable", "unauthorized", "invalid_api_response"}:
+                transport_failure = response
+
+    if mod is None and transport_failure is None and username:
+        query = "@" + username.lstrip("@")
+        response = await lookup(query)
+        candidate = response.get("mod") if isinstance(response.get("mod"), dict) else None
+        error = str(response.get("error") or ("not_found" if response.get("ok") else "unknown_error"))
+        if response.get("ok") and candidate:
+            if _gdewtf_profile_matches_telegram(candidate, user_id, username):
+                mod = candidate
+            else:
+                api_errors.append(f"{query}:telegram_identity_mismatch")
+        else:
+            api_errors.append(f"{query}:{error}")
+            if error in {"api_unavailable", "unauthorized", "invalid_api_response"}:
+                transport_failure = response
+
+    # Directory fallback is reserved for definitive misses, never an upstream
+    # outage. It lets older API versions resolve profiles by linked Telegram ID.
     if mod is None and transport_failure is None:
-        # Only query the directory when the direct lookups returned no profile.
-        # A network/auth failure is not evidence that a user is unlinked.
         _GDEWTF_API_CACHE.pop(_gdewtf_cache_key("/mods", {}), None)
         directory = await _api(
             "GET", "/mods",
-            request_timeout=aiohttp.ClientTimeout(total=5, connect=2, sock_read=4),
+            request_timeout=aiohttp.ClientTimeout(total=1.6, connect=0.6, sock_read=1.1),
         )
         if not directory.get("ok"):
             transport_failure = directory
@@ -709,6 +721,14 @@ async def _gdewtf_authorize(user_id: int, action: str, username: str | None = No
                 if isinstance(candidate, dict) and _gdewtf_profile_matches_telegram(candidate, user_id, username):
                     mod = candidate
                     break
+
+    if mod is not None:
+        _GDEWTF_ACCESS_CACHE[user_id] = (time.monotonic(), dict(mod))
+        if len(_GDEWTF_ACCESS_CACHE) > 1000:
+            now = time.monotonic()
+            for cached_id, (cached_at, _) in list(_GDEWTF_ACCESS_CACHE.items()):
+                if now - cached_at > _GDEWTF_ACCESS_CACHE_TTL:
+                    _GDEWTF_ACCESS_CACHE.pop(cached_id, None)
 
     if transport_failure is not None and mod is None:
         log_gdewtf.warning(
@@ -997,8 +1017,7 @@ async def gdewtf_command(message: Message) -> None:
                         nested = value.get(nested_key)
                         if isinstance(nested, list):
                             mods.extend(x for x in nested if isinstance(x, dict))
-            # Deduplicate the API directory in case the response wraps the same
-            # list in both "data" and "mods".
+            # Deduplicate the API directory in case the response wraps the same            # list in both "data" and "mods".
             unique_mods: dict[str, dict[str, Any]] = {}
             for mod in mods:
                 code = str(mod.get("pub") or mod.get("public_code") or mod.get("rnd_code") or mod.get("code") or "").strip().casefold()
@@ -1497,8 +1516,7 @@ async def gdewtf_command(message: Message) -> None:
             else:
                 result = f"✅ Статус бана обновлён · <code>{_clean(pub)}</code> · banned: <b>{_clean(data.get('banned'))}</b>"
             await _gdewtf_safe_answer(message, result)
-        else:
-            if str(data.get("error") or "") == "not_found":
+        else:            if str(data.get("error") or "") == "not_found":
                 await _gdewtf_safe_answer(message, 
                     "⚠️ В GDE.WTF не найден аккаунт по указанному Telegram ID/@username. "
                     "Если пользователь входил в проект через MAX и Telegram не был привязан, "
@@ -1997,8 +2015,7 @@ class CommandRateLimitMiddleware(BaseMiddleware):
         key = (event.chat.id, event.from_user.id, command_name)
         now = time.monotonic()
         previous = _COMMAND_LAST.get(key, 0.0)
-        if now - previous < 0.8:
-            last_notice = _COMMAND_NOTICE_LAST.get(key, 0.0)
+        if now - previous < 0.8:            last_notice = _COMMAND_NOTICE_LAST.get(key, 0.0)
             if now - last_notice >= 3.0:
                 _COMMAND_NOTICE_LAST[key] = now
                 try:
@@ -2497,8 +2514,7 @@ async def get_chat_member_cached(bot: Bot, chat_id: int, user_id: int) -> Any | 
         cutoff = now - _CHAT_MEMBER_CACHE_TTL * 3
         for old_key, (_, stamp) in list(_CHAT_MEMBER_CACHE.items()):
             if stamp < cutoff:
-                _CHAT_MEMBER_CACHE.pop(old_key, None)
-    return member
+                _CHAT_MEMBER_CACHE.pop(old_key, None)    return member
 
 async def is_current_chat_member(chat_id: int, user_id: int) -> bool:
     """Return True only when Telegram confirms the account is currently in this chat."""
@@ -2998,7 +3014,6 @@ async def start(message: Message) -> None:
     # Do not send a temporary ReplyKeyboardRemove message: Telegram displays
     # it briefly even if we delete it immediately.
     await message.answer(text, reply_markup=welcome_inline_keyboard(user_id, message.chat.type))
-
 @router.message(F.chat.type == ChatType.PRIVATE, F.text == "🛠 Админ-панель")
 async def admin_panel_button(message: Message) -> None:
     if not message.from_user or message.from_user.id != OWNER_ID:
@@ -3497,8 +3512,7 @@ async def track_activity(message: Message) -> None:
         _ACTIVITY_QUEUE.put_nowait(item)
     except asyncio.QueueFull:
         # Rare overflow path: persist this event off the event loop before buffering it.
-        if not await asyncio.to_thread(spool_activity, item):
-            log.critical("Could not spool overflow activity event chat=%s user=%s message=%s",
+        if not await asyncio.to_thread(spool_activity, item):            log.critical("Could not spool overflow activity event chat=%s user=%s message=%s",
                          message.chat.id, message.from_user.id, message.message_id)
         if len(_ACTIVITY_OVERFLOW) < _ACTIVITY_OVERFLOW_MAX:
             _ACTIVITY_OVERFLOW.append(item)
@@ -3997,8 +4011,7 @@ async def warn_cmd(message: Message) -> None:
             count=1,
         ).strip()
         if cleaned:
-            target_tokens = cleaned.split()
-        else:
+            target_tokens = cleaned.split()        else:
             target_tokens = []
     if not message.reply_to_message and not target_tokens:
         await message.answer("Ответьте на сообщение участника или укажите известному чату @username/ID.")
@@ -4497,8 +4510,7 @@ async def top_cmd(message: Message) -> None:
             rows = await filter_current_chat_members(message.chat.id, rows)
             lines = [f"{i}. {profile_link(int(r.get('user_id') or 0), '@'+str(r.get('username')).lstrip('@') if r.get('username') else str(r.get('first_name') or 'Участник'))} — <b>{int(r.get('messages') or 0)}</b> 💬" for i,r in enumerate(rows[:10],1) if int(r.get('user_id') or 0) > 0]
             await message.answer("<b>🏆 Топ сообщений</b>\n" + ("\n".join(lines) if lines else "Пока нет статистики."))
-            return
-        table, field, icon = table_map[category_key]
+            return        table, field, icon = table_map[category_key]
         rows = await asyncio.to_thread(db_rows, table, 1000, field, chat_id=message.chat.id)
         grouped = {}
         if category_key == "rep":
@@ -4997,8 +5009,7 @@ async def set_chat_nickname_cmd(message: Message) -> None:
             if explicit_username:
                 resolved = await _resolve_nickname_lookup_target(message, first)
             else:
-                # IDs are authoritative: never send them through fuzzy username/name
-                # resolution, and accept the documented parenthesized form.
+                # IDs are authoritative: never send them through fuzzy username/name                # resolution, and accept the documented parenthesized form.
                 resolved = await _resolve_nickname_lookup_target(message, normalized_first)
             if not resolved:
                 await message.answer(
@@ -5497,8 +5508,7 @@ async def promote_rank_cmd(message: Message) -> None:
     new_rank = explicit if explicit is not None else current + 1
     if new_rank <= current:
         await message.answer(f"ℹ️ У участника уже ранг {current} — {role_name(current)}. Для повышения выберите ранг выше.")
-        return
-    if new_rank > 5:
+        return    if new_rank > 5:
         await message.answer("ℹ️ Достигнут максимальный ранг: Создатель.")
         return
     actor_is_owner = bool(message.from_user and message.from_user.id == OWNER_ID)
@@ -5997,8 +6007,7 @@ async def auto_moderation_filters(message: Message) -> None:
 @router.message(Command("history"))
 @router.message(F.text.regexp(r"(?i)^\s*(?:история наказаний|нарушения)(?:\s|$)"))
 async def moderation_history_cmd(message: Message) -> None:
-    if not await require_admin(message):
-        return
+    if not await require_admin(message):        return
     args = args_after_command(message)
     target_id = None
     if message.reply_to_message and message.reply_to_message.from_user:
@@ -6497,8 +6506,7 @@ def _settings_exportable(settings: dict[str, Any]) -> dict[str, Any]:
     safe.pop("chat_permissions_before_lock", None)
     return safe
 
-def _validate_imported_settings(raw: Any) -> dict[str, Any] | None:
-    if not isinstance(raw, dict) or len(raw) > 200:
+def _validate_imported_settings(raw: Any) -> dict[str, Any] | None:    if not isinstance(raw, dict) or len(raw) > 200:
         return None
     result: dict[str, Any] = {}
     for key, value in raw.items():
@@ -6998,7 +7006,6 @@ async def _schedule_worker() -> None:
         except Exception:
             log.exception("Schedule worker failed")
         await asyncio.sleep(30)
-
 @router.message(Command("schedule", "расписание"))
 @router.message(F.text.regexp(r"(?i)^\s*расписание(?:\s|$)"))
 async def chat_schedule_cmd(message: Message) -> None:
@@ -7497,8 +7504,7 @@ async def owner_diagnostics(message: Message) -> None:
         ("Python", sys.version.split()[0]),
         ("Платформа", platform.platform()),
         ("Часовой пояс", "Europe/Moscow (UTC+3)"),
-        ("TELEGRAM_BOT_TOKEN задан", "да" if BOT_TOKEN else "нет"),
-        ("DATABASE_URL задан", "да" if DATABASE_URL else "нет"),
+        ("TELEGRAM_BOT_TOKEN задан", "да" if BOT_TOKEN else "нет"),        ("DATABASE_URL задан", "да" if DATABASE_URL else "нет"),
         ("BOT_OWNER_ID", str(OWNER_ID)),
     ]
     lines = [f"• {name}: <code>{val}</code>" for name, val in checks]
@@ -7997,8 +8003,7 @@ async def quote_cmd(message: Message) -> None:
     await message.answer(f"<blockquote>{text_value.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')}</blockquote>\n— {author}\n<code>{format_moscow_time(moscow_now())}</code>")
 
 @router.message(Command("favorites", "избранное"))
-@router.message(F.text.regexp(r"(?i)^\s*избранное\s*$"))
-async def favorites_cmd(message: Message) -> None:
+@router.message(F.text.regexp(r"(?i)^\s*избранное\s*$"))async def favorites_cmd(message: Message) -> None:
     if not message.from_user:
         return
     if not message.reply_to_message:
@@ -8497,8 +8502,7 @@ async def who_is_cmd(message: Message) -> None:
         f"🆔 <b>ID:</b> <code>{uid}</code>\n"
         "━━━━━━━━━━━━━━━━━━\n"
         f"🏅 <b>Ранг:</b> {role_name(rank)} · <code>{rank}/5</code>\n"
-        f"💬 <b>Сообщений:</b> {msgs:,}\n"
-        f"⚠️ <b>Предупреждений:</b> {warns}".replace(",", " ")
+        f"💬 <b>Сообщений:</b> {msgs:,}\n"        f"⚠️ <b>Предупреждений:</b> {warns}".replace(",", " ")
     )
 
 @router.message(F.text.regexp(r"(?i)^\s*лдк(?:\s|$)"))
@@ -8997,8 +9001,7 @@ async def gather_cmd(message: Message) -> None:
             return collected
 
         page_size = 1000
-        # Primary profiles.
-        offset = 0
+        # Primary profiles.        offset = 0
         while True:
             page = (
                 db.table("bot_users")
