@@ -468,6 +468,15 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertNotIn("family=socket.AF_INET6", self.source)
         self.assertEqual(self.source.count("AiohttpSession(timeout=8, limit=500)"), 2)
 
+    def test_ordinary_telegram_requests_have_a_bounded_three_second_timeout(self):
+        # GetUpdates uses the longer session timeout; ordinary calls such as
+        # sendMessage must not hold a handler for 6–7 seconds on network stalls.
+        self.assertIn("_TELEGRAM_API_TIMEOUT = 3", self.source)
+        start = self.source.index("class LowLatencyBot")
+        end = self.source.index("bot = LowLatencyBot(", start)
+        self.assertIn("not isinstance(method, GetUpdates)", self.source[start:end])
+        self.assertIn("request_timeout = _TELEGRAM_API_TIMEOUT", self.source[start:end])
+
     def test_owner_ping_uses_one_bounded_telegram_probe_and_parallel_db_probe(self):
         start = self.source.index("async def owner_ping(")
         end = self.source.index('@router.message(Command("diag"', start)
