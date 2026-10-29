@@ -590,7 +590,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn('max_age = 30.0 if path == "/mods" else 300.0', self.source)
         self.assertIn('stale = _gdewtf_stale_read(cache_key, normalized_path)', self.source)
         stale_start = self.source.index("def _gdewtf_stale_read(")
-        stale_end = self.source.index("\n\ndef _api(", stale_start)
+        stale_end = self.source.index("\n\nasync def _api(", stale_start)
         stale_helper = self.source[stale_start:stale_end]
         self.assertNotIn('"/mod"', stale_helper)
         self.assertIn('result["stale_cache"] = True', stale_helper)
