@@ -514,15 +514,18 @@ class PearCMStaticRegressionTests(unittest.TestCase):
 
     def test_gdewtf_panel_edits_existing_message_and_uses_api_membership(self):
         start = self.source.index("async def _gdewtf_authorize(")
-        end = self.source.index("\n\n@gdewtf_router.message", start)
+        end = self.source.index("\\n\\ngdewtf_router.message", start) if "\\n\\ngdewtf_router.message" in self.source[start:] else self.source.index("\\n\\n@gdewtf_router.message", start)
         auth = self.source[start:end]
-        self.assertIn('*(_api("GET", "/mod", params={"q": query}) for query in queries)', auth)
-        self.assertIn("transport_failure is not None and mod is None", auth)
-        self.assertIn("request_timeout=aiohttp.ClientTimeout(total=5, connect=2, sock_read=4)", auth)
+        self.assertIn('timeout = aiohttp.ClientTimeout(total=1.4, connect=0.6, sock_read=1.0)', auth)
+        self.assertIn('cached = _GDEWTF_ACCESS_CACHE.get(user_id)', auth)
+        self.assertIn('query = str(user_id)', auth)
+        self.assertIn('if mod is None and transport_failure is None and username:', auth)
+        self.assertNotIn('asyncio.gather', auth)
+        self.assertNotIn('total=5, connect=2, sock_read=4', auth)
         self.assertNotIn("_GDEWTF_KNOWN_PERMS", auth)
         self.assertNotIn('role not in {"admin", "chief", "rgov", "amb", "mod"}', auth)
         callback_start = self.source.index('@gdewtf_router.callback_query(F.data.startswith("gdepanel:"))')
-        callback_end = self.source.index("\n\nif not BOT_TOKEN", callback_start)
+        callback_end = self.source.index("\\n\\nif not BOT_TOKEN", callback_start)
         callback = self.source[callback_start:callback_end]
         self.assertIn("callback.message.edit_text(", callback)
         self.assertNotIn("callback.message.answer(", callback)
@@ -542,26 +545,24 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn("telegram_identity_mismatch", auth)
         self.assertIn("if explicit_ids and str(user_id) not in explicit_ids:", auth)
 
-    def test_gdewtf_bot_is_restricted_to_live_api_project_owner_or_chief(self):
-        helper_start = self.source.index("def _gdewtf_is_owner_or_chief(")
-        helper_end = self.source.index("\n\nasync def _gdewtf_authorize(", helper_start)
+    def test_gdewtf_bot_mutations_are_restricted_to_designated_controllers(self):
+        helper_start = self.source.index("def _gdewtf_is_designated_controller(")
+        helper_end = self.source.index("\\n\\ndef _gdewtf_is_owner_or_chief(", helper_start)
         helper = self.source[helper_start:helper_end]
-        for flag in ("is_owner", "is_project_owner", "is_chief", "is_chief_moderator"):
-            self.assertIn(flag, helper)
-        self.assertIn('"главный модератор"', helper)
-        self.assertIn('"владелец проекта"', helper)
-        self.assertNotIn('"is_admin",', helper)
+        self.assertIn("_GDEWTF_CONTROLLER_CODES", helper)
+        self.assertIn("return bool(values & _GDEWTF_CONTROLLER_CODES)", helper)
         auth_start = self.source.index("async def _gdewtf_authorize(")
-        auth_end = self.source.index("\n\n@gdewtf_router.message", auth_start)
+        auth_end = self.source.index("\\n\\nasync def _gdewtf_safe_answer", auth_start)
         auth = self.source[auth_start:auth_end]
-        self.assertIn('*(_api("GET", "/mod", params={"q": query}) for query in queries)', auth)
-        self.assertIn("_gdewtf_is_owner_or_chief(mod)", auth)
-        self.assertNotIn("_GDEWTF_ACCESS_CACHE", auth)
+        self.assertIn("_gdewtf_is_designated_controller(mod)", auth)
+        self.assertIn("if action in _GDEWTF_READONLY_ACTIONS:", auth)
+        self.assertIn("_GDEWTF_ACCESS_CACHE[user_id]", auth)
         callback_start = self.source.index('@gdewtf_router.callback_query(F.data.startswith("gdepanel:"))')
-        callback_end = self.source.index("\n\nif not BOT_TOKEN", callback_start)
+        callback_end = self.source.index("\\n\\nif not BOT_TOKEN", callback_start)
         callback = self.source[callback_start:callback_end]
         self.assertIn("await _gdewtf_authorize(callback.from_user.id, auth_action, callback.from_user.username)", callback)
-        self.assertIn('reply_markup=_gdewtf_panel_keyboard()', callback)
+        self.assertIn("reply_markup=_gdewtf_panel_keyboard()", callback)
+
 
     def test_postgres_adapter_reuses_bounded_connections(self):
         adapter = POSTGRES_ADAPTER.read_text(encoding="utf-8")
