@@ -1629,10 +1629,10 @@ if DATABASE_URL:
 else:
     raise RuntimeError("Запуск без постоянной БД запрещён: не задан DATABASE_URL. Проверь PostgreSQL в переменных окружения RelaxDev.")
 
-# Bound ordinary Telegram API calls so a network stall cannot freeze a command
-# for 15 seconds. This is a failure ceiling, not a latency target: real latency
-# depends on Telegram and the host's routing and cannot be forced to 50 ms.
-_TELEGRAM_API_TIMEOUT = 3
+# Keep ordinary Telegram API calls bounded, but allow enough time for transient
+# TLS/TCP stalls on the hosting route. A shorter timeout does not make healthy
+# requests faster; it only turns temporary network jitter into failed commands.
+_TELEGRAM_API_TIMEOUT = 6
 
 class LowLatencyBot(Bot):
     async def __call__(self, method, request_timeout=None):
@@ -1645,7 +1645,7 @@ class LowLatencyBot(Bot):
 # GetUpdates requests, Telegram flood control, and long periods with no replies.
 bot = LowLatencyBot(
     BOT_TOKEN,
-    session=AiohttpSession(timeout=5, limit=500),
+    session=AiohttpSession(timeout=8, limit=500),
     default=DefaultBotProperties(parse_mode=ParseMode.HTML, link_preview_is_disabled=True),
 )
 dp = Dispatcher()
@@ -9248,7 +9248,7 @@ async def run_forever() -> None:
                 # silently restore aiogram's 60-second default.
                 bot = LowLatencyBot(
                     BOT_TOKEN,
-                    session=AiohttpSession(timeout=5, limit=500),
+                    session=AiohttpSession(timeout=8, limit=500),
                     default=DefaultBotProperties(
                         parse_mode=ParseMode.HTML, link_preview_is_disabled=True
                     ),
