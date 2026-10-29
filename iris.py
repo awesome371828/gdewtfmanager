@@ -384,7 +384,7 @@ def _help() -> str:
         "<b>Просмотр</b>\n"
         "<code>!профиль q</code> · <code>!кто q</code> · <code>!статус q</code> · <code>!права q</code>\n"
         "<code>!варны q</code> · <code>!журнал [q] [кол-во]</code> · <code>!поиск слово</code>\n"
-        "<code>!модераторы [city_id]</code> · <code>!города</code> · <code>!топ [city_id]</code> · <code>!ping</code>\n"
+        "<code>!модераторы [city_id]</code> · <code>!модеры</code> · <code>!города</code> · <code>!топ [city_id]</code> · <code>!ping</code>\n"
         "<code>!люди</code> · общее число участников, если API GDE.WTF публикует его в ответе /ping\n\n"
         "<b>Модерация</b>\n"
         "<code>!варн q [причина]</code> · <code>!снятьварн [q] [номер]</code> · <code>!снятьварны q</code>\n"
@@ -554,7 +554,7 @@ _GDEWTF_CONTROLLER_CODES = frozenset({"RND-LJKD", "RND-8VWA"})
 # Ordinary linked moderators may use only informational commands.
 _GDEWTF_READONLY_ACTIONS = frozenset({
     "профиль", "profile", "who", "кто", "статус", "status", "права",
-    "варны", "warns", "поиск", "search", "модераторы", "mods", "города",
+    "варны", "warns", "поиск", "search", "модеры", "сверка", "модераторы", "mods", "города",
     "cities", "топ", "top", "рейтинг", "rating", "ping", "пинг", "help",
     "помощь", "команды", "панель", "panel", "меню", "люди", "people",
     "users", "участники",
@@ -947,6 +947,84 @@ async def gdewtf_command(message: Message) -> None:
                 rows = [_mod_line(m) for m in mods[:20]]
                 title = f"🔎 <b>Поиск · найдено {len(mods)}</b>"
             await _gdewtf_safe_answer(message, title + "\n\n" + ("\n\n".join(rows) if rows else "Ничего не найдено.")[:3700])
+            return
+
+        if action in {"модеры", "сверка"}:
+            # Compare project moderators with this Telegram chat. Bot API cannot
+            # enumerate all ordinary members, so the reverse comparison is impossible.
+            if message.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
+                await _gdewtf_safe_answer(message, "ℹ️ Команду <code>!модеры</code> нужно запускать в Telegram-группе.")
+                return
+            data = await _api("GET", "/mods")
+            if not data.get("ok"):
+                await _gdewtf_safe_answer(message, "⚠️ " + _error_text(data))
+                return
+            mods = [m for m in (data.get("mods") or []) if isinstance(m, dict)]
+            if not mods:
+                await _gdewtf_safe_answer(message, "⚠️ API вернул пустой список модераторов; сверка не выполнена.")
+                return
+            present: list[str] = []
+            absent: list[str] = []
+            unverified: list[str] = []
+            checked = 0
+            for mod in mods:
+                display = str(mod.get("nick") or mod.get("name") or mod.get("username") or mod.get("pub") or "Без имени").strip()
+                username = str(mod.get("username") or mod.get("telegram_username") or "").strip().lstrip("@")
+                raw_id = mod.get("tg_id") or mod.get("telegram_id") or mod.get("telegram_user_id") or mod.get("user_id")
+                label = _clean(display[:55])
+                if username and re.fullmatch(r"[A-Za-z0-9_]{5,32}", username):
+                    label += f" (<code>@{_clean(username)}</code>)"
+                pub = mod.get("pub") or mod.get("public_code") or mod.get("rnd_code") or mod.get("code")
+                if pub:
+                    label += f" · <code>{_clean(pub)}</code>"
+                try:
+                    uid = int(raw_id or 0)
+                except (TypeError, ValueError):
+                    uid = 0
+                if uid <= 0:
+                    unverified.append(label + " — Telegram ID отсутствует (MAX/не привязан/нет данных)")
+                    continue
+                checked += 1
+                try:
+                    member = await bot.get_chat_member(message.chat.id, uid)
+                    status = getattr(member, "status", None)
+                    if status in {ChatMemberStatus.LEFT, ChatMemberStatus.KICKED}:
+                        absent.append(label + " — не состоит в чате")
+                    else:
+                        present.append(label + " — найден по Telegram ID")
+                except TelegramBadRequest as exc:
+                    err = str(exc).casefold()
+                    if "user not found" in err or "participant_id_invalid" in err or "user_id_invalid" in err:
+                        absent.append(label + " — Telegram сообщает, что участник не найден")
+                    else:
+                        unverified.append(label + " — Telegram не позволил подтвердить присутствие")
+                except (TelegramForbiddenError, TelegramNetworkError, asyncio.TimeoutError):
+                    unverified.append(label + " — ошибка проверки Telegram")
+                except Exception:
+                    log_gdewtf.exception("Moderator chat cross-check failed (chat_id=%s, tg_id=%s)", message.chat.id, uid)
+                    unverified.append(label + " — проверка не завершена")
+            def section(title: str, rows: list[str], limit: int = 8) -> str:
+                if not rows:
+                    return f"\\n\\n<b>{title}: 0</b>"
+                body = "\\n".join("• " + row for row in rows[:limit])
+                if len(rows) > limit:
+                    body += f"\\n…и ещё {len(rows) - limit}"
+                return f"\\n\\n<b>{title}: {len(rows)}</b>\\n{body}"
+            output = (
+                "🔎 <b>Сверка модераторов GDE.WTF с чатом</b>\\n"
+                "━━━━━━━━━━━━━━━━━━━━\\n"
+                f"Модераторов в API: <b>{len(mods)}</b>\\n"
+                f"Проверено по Telegram ID: <b>{checked}</b>\\n"
+                f"Присутствуют: <b>{len(present)}</b>\\n"
+                f"Не найдены в чате: <b>{len(absent)}</b>\\n"
+                f"Нельзя подтвердить: <b>{len(unverified)}</b>"
+                + section("❌ Не найдены в чате", absent)
+                + section("🟡 Нужна проверка", unverified)
+                + "\\n\\n<i>Telegram Bot API не позволяет получить полный список обычных участников группы. "
+                  "Команда проверяет модераторов проекта, но не может перечислить всех участников чата, которых нет в проекте. "
+                  "Отсутствие Telegram ID не доказывает регистрацию через MAX.</i>"
+            )
+            await _gdewtf_safe_answer(message, output[:3900], parse_mode=ParseMode.HTML, disable_web_page_preview=True)
             return
 
         if action in {"модераторы", "mods"}:
