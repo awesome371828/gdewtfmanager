@@ -560,7 +560,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         callback_start = self.source.index('@gdewtf_router.callback_query(F.data.startswith("gdepanel:"))')
         callback_end = self.source.index("if not BOT_TOKEN", callback_start)
         callback = self.source[callback_start:callback_end]
-        self.assertIn("await _gdewtf_authorize(callback.from_user.id, auth_action, callback.from_user.username)", callback)
+        self.assertIn('await _gdewtf_authorize(callback.from_user.id, "panel_button:" + auth_action, callback.from_user.username)', callback)
         self.assertIn("reply_markup=_gdewtf_panel_keyboard()", callback)
 
 
