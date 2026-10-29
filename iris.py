@@ -1656,19 +1656,22 @@ else:
     raise RuntimeError("Запуск без постоянной БД запрещён: не задан DATABASE_URL. Проверь PostgreSQL в переменных окружения RelaxDev.")
 
 # Bound ordinary Telegram API calls so a stalled send cannot block a command
-# for 6–7 seconds. Long polling uses its own longer session timeout below.
-# This cannot repair an upstream Telegram/network outage, but it caps the impact.
+# for 6–7 seconds. Keep polling's transport timeout longer than Telegram's
+# 25-second long-poll wait; otherwise the session default can abort every poll.
 _TELEGRAM_API_TIMEOUT = 3
+_TELEGRAM_POLLING_REQUEST_TIMEOUT = 35
 
 class LowLatencyBot(Bot):
     async def __call__(self, method, request_timeout=None):
-        if request_timeout is None and not isinstance(method, GetUpdates):
-            request_timeout = _TELEGRAM_API_TIMEOUT
+        if request_timeout is None:
+            if isinstance(method, GetUpdates):
+                request_timeout = _TELEGRAM_POLLING_REQUEST_TIMEOUT
+            else:
+                request_timeout = _TELEGRAM_API_TIMEOUT
         return await super().__call__(method, request_timeout=request_timeout)
 
 # Long polling needs an HTTP timeout longer than Telegram's server-side wait.
-# A 3-second HTTP timeout combined with 2-second polling caused repeated
-# GetUpdates requests, Telegram flood control, and long periods with no replies.
+# A short GetUpdates transport timeout causes repeated polls and delays updates.
 bot = LowLatencyBot(
     BOT_TOKEN,
     session=AiohttpSession(timeout=8, limit=500),
