@@ -950,8 +950,10 @@ async def gdewtf_command(message: Message) -> None:
             return
 
         if action in {"модеры", "сверка"}:
-            # Compare project moderators with this Telegram chat. Bot API cannot
-            # enumerate all ordinary members, so the reverse comparison is impossible.
+            # Reverse audit: identify Telegram chat members who are not present
+            # in the live GDE.WTF moderator directory. Telegram has no API to list
+            # every ordinary group member, so combine durable history, recent
+            # updates, admins and the command sender, then verify membership live.
             if message.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
                 await _gdewtf_safe_answer(message, "ℹ️ Команду <code>!модеры</code> нужно запускать в Telegram-группе.")
                 return
@@ -959,70 +961,195 @@ async def gdewtf_command(message: Message) -> None:
             if not data.get("ok"):
                 await _gdewtf_safe_answer(message, "⚠️ " + _error_text(data))
                 return
-            mods = [m for m in (data.get("mods") or []) if isinstance(m, dict)]
+            mods: list[dict[str, Any]] = []
+            for key in ("mods", "moderators", "items", "results", "data"):
+                value = data.get(key)
+                if isinstance(value, list):
+                    mods.extend(x for x in value if isinstance(x, dict))
+                elif isinstance(value, dict):
+                    for nested_key in ("mods", "moderators", "items", "results"):
+                        nested = value.get(nested_key)
+                        if isinstance(nested, list):
+                            mods.extend(x for x in nested if isinstance(x, dict))
+            # Deduplicate the API directory in case the response wraps the same
+            # list in both "data" and "mods".
+            unique_mods: dict[str, dict[str, Any]] = {}
+            for mod in mods:
+                code = str(mod.get("pub") or mod.get("public_code") or mod.get("rnd_code") or mod.get("code") or "").strip().casefold()
+                identity = str(mod.get("tg_id") or mod.get("telegram_id") or mod.get("telegram_user_id") or mod.get("user_id") or mod.get("username") or mod.get("telegram_username") or code)
+                if identity:
+                    unique_mods[identity.casefold()] = mod
+            mods = list(unique_mods.values())
             if not mods:
                 await _gdewtf_safe_answer(message, "⚠️ API вернул пустой список модераторов; сверка не выполнена.")
                 return
-            present: list[str] = []
-            absent: list[str] = []
-            unverified: list[str] = []
-            checked = 0
+
+            # API identity sets deliberately use only explicit Telegram IDs and
+            # usernames. Site nicknames / RND codes are not assumed to be Telegram IDs.
+            project_ids: set[str] = set()
+            project_usernames: set[str] = set()
             for mod in mods:
-                display = str(mod.get("nick") or mod.get("name") or mod.get("username") or mod.get("pub") or "Без имени").strip()
-                username = str(mod.get("username") or mod.get("telegram_username") or "").strip().lstrip("@")
-                raw_id = mod.get("tg_id") or mod.get("telegram_id") or mod.get("telegram_user_id") or mod.get("user_id")
-                label = _clean(display[:55])
-                if username and re.fullmatch(r"[A-Za-z0-9_]{5,32}", username):
-                    label += f" (<code>@{_clean(username)}</code>)"
-                pub = mod.get("pub") or mod.get("public_code") or mod.get("rnd_code") or mod.get("code")
-                if pub:
-                    label += f" · <code>{_clean(pub)}</code>"
+                for field in ("tg_id", "telegram_id", "telegram_user_id", "telegramId", "telegramUserId", "telegram_user_id"):
+                    raw = mod.get(field)
+                    if raw is not None and str(raw).strip().isdigit():
+                        project_ids.add(str(raw).strip())
+                for field in ("username", "telegram_username", "tg_username", "telegramUsername"):
+                    raw = str(mod.get(field) or "").strip().lstrip("@")
+                    if raw and re.fullmatch(r"[A-Za-z0-9_]{5,32}", raw):
+                        project_usernames.add(raw.casefold())
+
+            # Load as much durable chat history as possible. These tables are
+            # observations, not a canonical Telegram roster; stale records are
+            # filtered by getChatMember below.
+            known: dict[int, dict[str, Any]] = {}
+            def add_known(row: dict[str, Any]) -> None:
                 try:
-                    uid = int(raw_id or 0)
+                    uid = int(row.get("user_id") or row.get("telegram_user_id") or 0)
                 except (TypeError, ValueError):
-                    uid = 0
+                    return
                 if uid <= 0:
-                    unverified.append(label + " — Telegram ID отсутствует (MAX/не привязан/нет данных)")
-                    continue
-                checked += 1
+                    return
+                old_row = known.get(uid, {})
+                known[uid] = {
+                    "user_id": uid,
+                    "username": row.get("username") or old_row.get("username"),
+                    "first_name": row.get("first_name") or row.get("display_name") or old_row.get("first_name") or "Участник",
+                    "sources": set(old_row.get("sources", set())) | {str(row.get("_source") or "история бота")},
+                }
+            db_available = db is not None
+            if db_available:
+                for table, label in (("bot_users", "профили бота"), ("bot_activity_events", "история сообщений")):
+                    try:
+                        offset = 0
+                        while offset < 10000:
+                            page = (
+                                db.table(table).select("user_id,username,first_name,chat_id")
+                                .eq("chat_id", message.chat.id)
+                                .range(offset, offset + 999).execute().data or []
+                            )
+                            for row in page:
+                                row["_source"] = label
+                                add_known(row)
+                            if len(page) < 1000:
+                                break
+                            offset += 1000
+                    except Exception:
+                        log_gdewtf.warning("Could not load %s for moderator audit chat=%s", table, message.chat.id, exc_info=True)
+                # Explicit links are stronger than username guesses. Keep them as
+                # extra evidence when the table exists in the deployed schema.
                 try:
-                    member = await bot.get_chat_member(message.chat.id, uid)
-                    status = getattr(member, "status", None)
-                    if status in {ChatMemberStatus.LEFT, ChatMemberStatus.KICKED}:
-                        absent.append(label + " — не состоит в чате")
-                    else:
-                        present.append(label + " — найден по Telegram ID")
-                except TelegramBadRequest as exc:
-                    err = str(exc).casefold()
-                    if "user not found" in err or "participant_id_invalid" in err or "user_id_invalid" in err:
-                        absent.append(label + " — Telegram сообщает, что участник не найден")
-                    else:
-                        unverified.append(label + " — Telegram не позволил подтвердить присутствие")
-                except (TelegramForbiddenError, TelegramNetworkError, asyncio.TimeoutError):
-                    unverified.append(label + " — ошибка проверки Telegram")
+                    links = db_rows("bot_gdewtf_project_links", 1000, chat_id=message.chat.id)
+                    for row in links:
+                        add_known({"user_id": row.get("telegram_user_id"), "username": row.get("telegram_username"), "first_name": row.get("gdewtf_pub") or "Связанный профиль", "_source": "связь GDE.WTF"})
+                        uid = int(row.get("telegram_user_id") or 0)
+                        if uid > 0:
+                            known[uid]["gdewtf_user_key"] = row.get("gdewtf_user_key")
+                            known[uid]["gdewtf_pub"] = row.get("gdewtf_pub")
                 except Exception:
-                    log_gdewtf.exception("Moderator chat cross-check failed (chat_id=%s, tg_id=%s)", message.chat.id, uid)
-                    unverified.append(label + " — проверка не завершена")
-            def section(title: str, rows: list[str], limit: int = 8) -> str:
+                    log_gdewtf.debug("Optional project-link table unavailable", exc_info=True)
+
+            # Admin list is directly queryable from Telegram, unlike ordinary members.
+            try:
+                admins = await bot.get_chat_administrators(message.chat.id)
+                for item in admins:
+                    u = item.user
+                    add_known({"user_id": u.id, "username": u.username, "first_name": u.full_name, "_source": "администраторы Telegram"})
+            except Exception:
+                log_gdewtf.warning("Could not fetch Telegram admins for moderator audit chat=%s", message.chat.id, exc_info=True)
+            if message.from_user:
+                add_known({"user_id": message.from_user.id, "username": message.from_user.username, "first_name": message.from_user.full_name, "_source": "запуск команды"})
+            for (cid, uid), (username, first_name, _stamp) in list(_RECENT_CHAT_USERS.items()):
+                if cid == message.chat.id:
+                    add_known({"user_id": uid, "username": username, "first_name": first_name, "_source": "последние сообщения"})
+
+            # Verify every candidate against Telegram in parallel, bounded to avoid
+            # request bursts. Only confirmed current members are compared below.
+            current: list[dict[str, Any]] = []
+            not_current = 0
+            semaphore = asyncio.Semaphore(8)
+            async def verify_member(row: dict[str, Any]) -> tuple[dict[str, Any], bool | None]:
+                async with semaphore:
+                    try:
+                        member = await bot.get_chat_member(message.chat.id, row["user_id"])
+                        status = getattr(member, "status", None)
+                        return row, status not in {ChatMemberStatus.LEFT, ChatMemberStatus.KICKED}
+                    except TelegramBadRequest as exc:
+                        err = str(exc).casefold()
+                        if any(marker in err for marker in ("user not found", "participant_id_invalid", "user_id_invalid", "participant not found")):
+                            return row, False
+                        return row, None
+                    except Exception:
+                        return row, None
+            verified = await asyncio.gather(*(verify_member(row) for row in known.values()))
+            unknown_membership = 0
+            for row, is_current in verified:
+                if is_current is True:
+                    current.append(row)
+                elif is_current is False:
+                    not_current += 1
+                else:
+                    unknown_membership += 1
+
+            def project_match(row: dict[str, Any]) -> tuple[bool, str]:
+                uid = str(row["user_id"])
+                username = str(row.get("username") or "").strip().lstrip("@").casefold()
+                # Explicit Telegram ID is the strongest possible match.
+                if uid in project_ids:
+                    return True, "Telegram ID"
+                # If the API has an explicit ID for this same username but it
+                # differs, don't let a recycled username override that mismatch.
+                for mod in mods:
+                    names = {
+                        str(mod.get(k) or "").strip().lstrip("@").casefold()
+                        for k in ("username", "telegram_username", "tg_username", "telegramUsername")
+                        if mod.get(k)
+                    }
+                    if username and username in names:
+                        explicit = {
+                            str(mod.get(k)).strip()
+                            for k in ("tg_id", "telegram_id", "telegram_user_id", "telegramId", "telegramUserId")
+                            if mod.get(k) is not None and str(mod.get(k)).strip().isdigit()
+                        }
+                        if explicit and uid not in explicit:
+                            continue
+                        return True, "username"
+                return False, ""
+
+            in_project: list[str] = []
+            not_in_project: list[str] = []
+            uncertain: list[str] = []
+            for row in current:
+                username = str(row.get("username") or "").strip().lstrip("@")
+                name = _clean(str(row.get("first_name") or "Участник")[:60])
+                identity = f"{name} · <code>ID {row['user_id']}</code>"
+                if username and re.fullmatch(r"[A-Za-z0-9_]{5,32}", username):
+                    identity += f" · <code>@{_clean(username)}</code>"
+                match, method = project_match(row)
+                if match:
+                    in_project.append(identity + f" — совпадение: {method}")
+                else:
+                    # No match is a strong candidate, but not absolute proof if
+                    # the project profile has no Telegram linkage (e.g. MAX).
+                    not_in_project.append(identity + " — профиль модератора не найден")
+            def section(title: str, rows: list[str], limit: int = 18) -> str:
                 if not rows:
                     return f"\n\n<b>{title}: 0</b>"
-                body = "\n".join("• " + row for row in rows[:limit])
+                body = "\n".join("• " + item for item in rows[:limit])
                 if len(rows) > limit:
                     body += f"\n…и ещё {len(rows) - limit}"
                 return f"\n\n<b>{title}: {len(rows)}</b>\n{body}"
             output = (
-                "🔎 <b>Сверка модераторов GDE.WTF с чатом</b>\n"
+                "🔎 <b>КТО В МОДЕРСКОЙ, НО НЕ МОДЕРАТОР GDE.WTF</b>\n"
                 "━━━━━━━━━━━━━━━━━━━━\n"
-                f"Модераторов в API: <b>{len(mods)}</b>\n"
-                f"Проверено по Telegram ID: <b>{checked}</b>\n"
-                f"Присутствуют: <b>{len(present)}</b>\n"
-                f"Не найдены в чате: <b>{len(absent)}</b>\n"
-                f"Нельзя подтвердить: <b>{len(unverified)}</b>"
-                + section("❌ Не найдены в чате", absent)
-                + section("🟡 Нужна проверка", unverified)
-                + "\n\n<i>Telegram Bot API не позволяет получить полный список обычных участников группы. "
-                  "Команда проверяет модераторов проекта, но не может перечислить всех участников чата, которых нет в проекте. "
-                  "Отсутствие Telegram ID не доказывает регистрацию через MAX.</i>"
+                f"Модераторов в проекте/API: <b>{len(mods)}</b>\n"
+                f"Известных Telegram-пользователей проверено: <b>{len(known)}</b>\n"
+                f"Текущих участников подтверждено: <b>{len(current)}</b>\n"
+                f"Совпали с проектом: <b>{len(in_project)}</b>\n"
+                f"Кандидаты — нет в списке модераторов: <b>{len(not_in_project)}</b>\n"
+                f"Не удалось подтвердить членство: <b>{unknown_membership}</b>"
+                + section("🚩 В Telegram есть, в списке модераторов проекта не найден", not_in_project)
+                + section("✅ Найдены и в Telegram, и в проекте", in_project, 10)
+                + "\n\n<i>Важно: Telegram не предоставляет боту полный список обычных участников. Проверены участники, известные базе/истории бота, последние авторы сообщений, администраторы и автор команды. Если часть из 62 человек ещё не попадала в данные бота, она не попадёт в результат. Совпадение по username слабее ID; аккаунты MAX без связанного Telegram могут выглядеть как несовпадение.</i>"
             )
             await _gdewtf_safe_answer(message, output[:3900], parse_mode=ParseMode.HTML, disable_web_page_preview=True)
             return
