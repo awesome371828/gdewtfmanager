@@ -543,7 +543,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         auth_end = self.source.index("\n\nasync def _gdewtf_safe_answer", auth_start)
         auth = self.source[auth_start:auth_end]
         self.assertIn("telegram_identity_mismatch", auth)
-        self.assertIn("if explicit_ids and str(user_id) not in explicit_ids:", auth)
+        self.assertIn("_gdewtf_profile_matches_telegram(candidate, user_id, username)", auth)
 
     def test_gdewtf_bot_mutations_are_restricted_to_designated_controllers(self):
         helper_start = self.source.index("def _gdewtf_is_designated_controller(")
