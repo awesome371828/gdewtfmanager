@@ -113,9 +113,10 @@ try:
 except ValueError:
     OWNER_ID = 0
 
-# Fail fast when the external GDE.WTF API is unreachable; don't hold a command
-# open for eight seconds. Reused keep-alive connections make healthy requests fast.
-_TIMEOUT = aiohttp.ClientTimeout(total=4, connect=1.5, sock_read=2.5)
+# Bound ordinary API reads so a degraded upstream cannot freeze a command for
+# several seconds. Endpoints that mutate data or authorize privileged actions
+# pass an explicit, larger timeout at the call site.
+_TIMEOUT = aiohttp.ClientTimeout(total=1.8, connect=0.7, sock_read=1.2)
 # Reuse keep-alive connections to avoid a fresh DNS/TCP/TLS handshake on every
 # command. The API session is closed cleanly with the bot during shutdown.
 _API_SESSION: aiohttp.ClientSession | None = None
@@ -138,6 +139,29 @@ def _gdewtf_cache_key(path: str, params: dict[str, Any] | None) -> tuple[str, st
 def _gdewtf_invalidate_api_cache() -> None:
     # Clear all read snapshots after writes so profiles, warns and lists don't stay stale.
     _GDEWTF_API_CACHE.clear()
+
+
+def _gdewtf_stale_read(
+    cache_key: tuple[str, str] | None, path: str
+) -> dict[str, Any] | None:
+    """Return a briefly stale, read-only public list during a short upstream outage.
+
+    Never use stale moderator profiles for permission checks or mutations.
+    Only /mods and /cities are safe to serve from this fallback.
+    """
+    if cache_key is None or path not in {"/mods", "/cities"}:
+        return None
+    cached = _GDEWTF_API_CACHE.get(cache_key)
+    if cached is None:
+        return None
+    max_age = 30.0 if path == "/mods" else 300.0
+    age = time.monotonic() - cached[0]
+    if age > max_age or not cached[1].get("ok"):
+        return None
+    result = dict(cached[1])
+    result["stale_cache"] = True
+    log_gdewtf.warning("Serving briefly cached read-only API result for %s (age=%.1fs)", path, age)
+    return result
 
 
 async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
@@ -234,8 +258,12 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
                 return data
     except asyncio.TimeoutError as exc:
         log_gdewtf.warning(
-            "GDE.WTF API timeout (%s %s, base=%s, total=4s)", method, path, API_BASE
+            "GDE.WTF API timeout (%s %s, base=%s, total=%.1fs)",
+            method, path, API_BASE, (request_timeout or _TIMEOUT).total,
         )
+        stale = _gdewtf_stale_read(cache_key, normalized_path) if cache_key is not None else None
+        if stale is not None:
+            return stale
         return {"ok": False, "error": "api_unavailable", "detail": "timeout"}
     except aiohttp.ClientConnectorError as exc:
         # This distinguishes DNS/TCP/TLS connection failures from a slow API response.
@@ -243,12 +271,18 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
             "GDE.WTF API connection failed (%s %s, base=%s): %s: %s",
             method, path, API_BASE, type(exc).__name__, str(exc)[:240],
         )
+        stale = _gdewtf_stale_read(cache_key, normalized_path) if cache_key is not None else None
+        if stale is not None:
+            return stale
         return {"ok": False, "error": "api_unavailable", "detail": "connection"}
     except aiohttp.ClientError as exc:
         log_gdewtf.warning(
             "GDE.WTF API client error (%s %s, base=%s): %s: %s",
             method, path, API_BASE, type(exc).__name__, str(exc)[:240],
         )
+        stale = _gdewtf_stale_read(cache_key, normalized_path) if cache_key is not None else None
+        if stale is not None:
+            return stale
         return {"ok": False, "error": "api_unavailable", "detail": "client_error"}
 
 
@@ -289,7 +323,7 @@ def _error_text(data: dict[str, Any]) -> str:
     if err == "api_unavailable" and detail == "connection":
         return "Не удалось подключиться к GDE.WTF (DNS/TCP/TLS). Проверь доступность домена с хоста Relax Dev."
     if err == "api_unavailable" and detail == "timeout":
-        return "GDE.WTF не ответил за 4 секунды. Это тайм-аут внешнего API."
+        return "GDE.WTF не ответил за 1,8 секунды. Это тайм-аут внешнего API."
     messages = {
         "api_key_not_configured": "Не задан секрет GDEWTF_API_KEY в окружении хоста.",
         "api_unavailable": "GDE.WTF API недоступен или не ответил за 4 секунды.",
