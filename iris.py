@@ -1096,6 +1096,22 @@ async def gdewtf_command(message: Message) -> None:
                 # Explicit Telegram ID is the strongest possible match.
                 if uid in project_ids:
                     return True, "Telegram ID"
+                # An administrator may have explicitly linked a Telegram account
+                # to a public RND profile. Trust that mapping only if the linked
+                # project code/key exists in the live moderator directory.
+                linked_values = {
+                    str(row.get("gdewtf_pub") or "").strip().casefold(),
+                    str(row.get("gdewtf_user_key") or "").strip().casefold(),
+                } - {""}
+                if linked_values:
+                    for mod in mods:
+                        codes = {
+                            str(mod.get(k) or "").strip().casefold()
+                            for k in ("pub", "public_code", "rnd_code", "code", "id")
+                            if mod.get(k)
+                        }
+                        if linked_values & codes:
+                            return True, "сохранённая связь профиля"
                 # If the API has an explicit ID for this same username but it
                 # differs, don't let a recycled username override that mismatch.
                 for mod in mods:
