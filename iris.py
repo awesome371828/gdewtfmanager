@@ -1011,10 +1011,13 @@ async def gdewtf_command(message: Message) -> None:
                     return
                 old_row = known.get(uid, {})
                 known[uid] = {
+                    **old_row,
                     "user_id": uid,
                     "username": row.get("username") or old_row.get("username"),
                     "first_name": row.get("first_name") or row.get("display_name") or old_row.get("first_name") or "Участник",
                     "sources": set(old_row.get("sources", set())) | {str(row.get("_source") or "история бота")},
+                    "gdewtf_user_key": row.get("gdewtf_user_key") or old_row.get("gdewtf_user_key"),
+                    "gdewtf_pub": row.get("gdewtf_pub") or old_row.get("gdewtf_pub"),
                 }
             db_available = db is not None
             if db_available:
