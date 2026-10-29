@@ -1005,22 +1005,22 @@ async def gdewtf_command(message: Message) -> None:
                     unverified.append(label + " — проверка не завершена")
             def section(title: str, rows: list[str], limit: int = 8) -> str:
                 if not rows:
-                    return f"\\n\\n<b>{title}: 0</b>"
-                body = "\\n".join("• " + row for row in rows[:limit])
+                    return f"\n\n<b>{title}: 0</b>"
+                body = "\n".join("• " + row for row in rows[:limit])
                 if len(rows) > limit:
-                    body += f"\\n…и ещё {len(rows) - limit}"
-                return f"\\n\\n<b>{title}: {len(rows)}</b>\\n{body}"
+                    body += f"\n…и ещё {len(rows) - limit}"
+                return f"\n\n<b>{title}: {len(rows)}</b>\n{body}"
             output = (
-                "🔎 <b>Сверка модераторов GDE.WTF с чатом</b>\\n"
-                "━━━━━━━━━━━━━━━━━━━━\\n"
-                f"Модераторов в API: <b>{len(mods)}</b>\\n"
-                f"Проверено по Telegram ID: <b>{checked}</b>\\n"
-                f"Присутствуют: <b>{len(present)}</b>\\n"
-                f"Не найдены в чате: <b>{len(absent)}</b>\\n"
+                "🔎 <b>Сверка модераторов GDE.WTF с чатом</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                f"Модераторов в API: <b>{len(mods)}</b>\n"
+                f"Проверено по Telegram ID: <b>{checked}</b>\n"
+                f"Присутствуют: <b>{len(present)}</b>\n"
+                f"Не найдены в чате: <b>{len(absent)}</b>\n"
                 f"Нельзя подтвердить: <b>{len(unverified)}</b>"
                 + section("❌ Не найдены в чате", absent)
                 + section("🟡 Нужна проверка", unverified)
-                + "\\n\\n<i>Telegram Bot API не позволяет получить полный список обычных участников группы. "
+                + "\n\n<i>Telegram Bot API не позволяет получить полный список обычных участников группы. "
                   "Команда проверяет модераторов проекта, но не может перечислить всех участников чата, которых нет в проекте. "
                   "Отсутствие Telegram ID не доказывает регистрацию через MAX.</i>"
             )
