@@ -582,5 +582,18 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         profile_end = self.source.index("def call_mention(", profile_start)
         self.assertNotIn("tg://user?id=", self.source[profile_start:profile_end])
 
+
+    def test_gdewtf_reads_fail_fast_and_safe_lists_can_use_short_stale_cache(self):
+        self.assertIn("ClientTimeout(total=1.8, connect=0.7, sock_read=1.2)", self.source)
+        self.assertIn("def _gdewtf_stale_read(", self.source)
+        self.assertIn('path not in {"/mods", "/cities"}', self.source)
+        self.assertIn('max_age = 30.0 if path == "/mods" else 300.0', self.source)
+        self.assertIn('stale = _gdewtf_stale_read(cache_key, normalized_path)', self.source)
+        stale_start = self.source.index("def _gdewtf_stale_read(")
+        stale_end = self.source.index("\n\ndef _api(", stale_start)
+        stale_helper = self.source[stale_start:stale_end]
+        self.assertNotIn('"/mod"', stale_helper)
+        self.assertIn('result["stale_cache"] = True', stale_helper)
+
 if __name__ == "__main__":
     unittest.main()
