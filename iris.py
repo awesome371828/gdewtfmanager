@@ -209,7 +209,11 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
     semaphore = _GDEWTF_READ_SEMAPHORE if method == "GET" else _GDEWTF_WRITE_SEMAPHORE
     started_at = time.monotonic()
     request_ok = False
-    await semaphore.acquire()
+    try:
+        await semaphore.acquire()
+    except asyncio.CancelledError:
+        await _GDEWTF_CIRCUIT.abandon_probe()
+        raise
     try:
         if _API_SESSION is None or _API_SESSION.closed:
             async with _API_SESSION_LOCK:
