@@ -46,6 +46,7 @@ from aiogram.types import (
     ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, MenuButtonWebApp,
 )
 from postgres_adapter import PostgresClient, create_client_from_env
+from confirmations import ConfirmationStore
 from reliability import AsyncCircuitBreaker, CircuitOpenError, RollingLatency
 
 try:
@@ -129,6 +130,9 @@ _SHUTDOWN_EVENT: asyncio.Event | None = None
 _GDEWTF_API_CACHE: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
 _GDEWTF_API_CACHE_TTL = {"/mods": 4.0, "/cities": 30.0, "/ping": 2.0, "/mod": 2.0}
 _GDEWTF_API_CACHE_LOCK = asyncio.Lock()
+_GDEWTF_CONFIRMATIONS = ConfirmationStore(ttl=45.0, capacity=500)
+_GDEWTF_CONFIRM_BYPASS: set[tuple[int, int, str]] = set()
+_GDEWTF_DANGEROUS_ACTIONS = {"снять", "modremove", "снятьварны", "снять-варны", "warnclear", "бан", "ban", "разбан", "unban", "анбан", "назначить", "modset", "rgov", "регион", "региональный"}
 
 # Protect GDE.WTF independently from Telegram handlers. Reads and mutations have
 # separate bulkheads so a burst of directory lookups cannot starve moderation.
@@ -885,6 +889,26 @@ async def gdewtf_command(message: Message) -> None:
     if action in {"рейтинг", "rating"}:
         action = "топ"
     rest = parts[2:] if len(parts) > 2 else []
+
+    confirm_key = (message.from_user.id, message.chat.id, text)
+    if confirm_key in _GDEWTF_CONFIRM_BYPASS:
+        _GDEWTF_CONFIRM_BYPASS.discard(confirm_key)
+    elif action in _GDEWTF_DANGEROUS_ACTIONS:
+        token = _GDEWTF_CONFIRMATIONS.create(
+            user_id=message.from_user.id, chat_id=message.chat.id,
+            message_id=message.message_id, command=text,
+        )
+        target_name = rest[0] if rest else "не указана"
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="Подтвердить", callback_data=f"gdeconfirm:yes:{token}"),
+            InlineKeyboardButton(text="Отмена", callback_data=f"gdeconfirm:no:{token}"),
+        ]])
+        await _gdewtf_safe_answer(
+            message,
+            f"⚠️ <b>Подтверди действие</b>\\nКоманда: <code>{_clean(text)}</code>\\nЦель: <code>{_clean(target_name)}</code>\\nСрок подтверждения: 45 секунд.",
+            reply_markup=keyboard,
+        )
+        return
 
     # A reply is an unambiguous target: use the sender's Telegram ID and let
     # GDE.WTF resolve it through the project's existing Telegram account link.
