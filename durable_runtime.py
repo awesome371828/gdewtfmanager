@@ -22,7 +22,7 @@ class DurableRuntime:
         with self.db.connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(sql, params)
-                result = cur.fetchone() if fetch else None
+                result = cur.fetchall() if fetch == "all" else (cur.fetchone() if fetch else None)
             conn.commit()
             return result
 
@@ -79,7 +79,7 @@ class DurableRuntime:
                    FROM public.bot_gdewtf_operations
                    WHERE status='unknown'
                    ORDER BY updated_at ASC LIMIT %s""",
-                (max(1, min(100, int(limit))),), fetch=False,
+                (max(1, min(100, int(limit))),), fetch="all",
             )
         )
 
