@@ -47,14 +47,13 @@ commands, moderation handlers, settings, and stored records are not removed.
 
 ## Not complete in this branch
 
-The operation helper is not yet connected to mutation requests. The backup worker exists, but persistent backup storage and an isolated restore-test database are not configured here. Full Telegram message/keyboard redesign, real PostgreSQL/API integration tests, and load/recovery tests still require a staging bot, isolated database, and backup destination. Do not interpret a successful Python compile as proof of live API compatibility.
+The PostgreSQL mutation journal is connected to non-GET API requests. Unknown results are surfaced to the owner and never blindly replayed. The backup worker writes local archives by default, but off-container durable storage and an isolated restore-test database are not configured here. Full Telegram message/keyboard redesign, real PostgreSQL/API integration tests, and load/recovery tests still require a staging bot, isolated database, and backup destination. Do not interpret a successful Python compile as proof of live API compatibility.
 
 ## Deployment safety
 
 Do not deploy this branch to the live bot until the Docker build and tests pass in the user's build environment and
 the advisory lock has been verified against the same PostgreSQL database used by the
-Relax Dev instance. The SQL migration is additive, but should still be backed up
-before it is applied. Never replay an uncertain mutating API request until the
+Relax Dev instance. The additive SQL migration is applied automatically at startup before schema checks. Never replay an uncertain mutating API request until the
 upstream API's idempotency behavior has been confirmed.
 
 No GitHub Actions workflow is used to run the bot. The bot remains a long-running
