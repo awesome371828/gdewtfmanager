@@ -10,7 +10,7 @@ class ConfirmationStore:
         self.capacity = int(capacity)
         self._items: dict[str, dict[str, Any]] = {}
 
-    def create(self, *, user_id: int, chat_id: int, message_id: int, command: str) -> str:
+    def create(self, *, user_id: int, chat_id: int, message_id: int, command: str, reply_to_message: Any = None) -> str:
         self.prune()
         if len(self._items) >= self.capacity:
             oldest = min(self._items, key=lambda k: self._items[k]["created"])
@@ -20,7 +20,7 @@ class ConfirmationStore:
         self._items[token] = {
             "user_id": int(user_id), "chat_id": int(chat_id),
             "message_id": int(message_id), "command": str(command),
-            "created": now, "expires": now + self.ttl,
+            "created": now, "expires": now + self.ttl, "reply_to_message": reply_to_message,
         }
         return token
 
