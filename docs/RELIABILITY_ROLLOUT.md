@@ -31,7 +31,7 @@ commands, moderation handlers, settings, and stored records are not removed.
 |---|---|---|
 | 1 | Cross-container single-instance protection | Implemented in PostgreSQL client creation; must be verified on the actual Relax Dev database |
 | 2 | Durable GDE.WTF mutation outbox | Table prepared and helper methods added, but _api mutation journaling is not wired; uncertain writes are not yet recorded automatically. No automatic POST retry is allowed |
-| 3 | Automated backups and restore drills | Not configured by this code change; must be configured for the Relax Dev database and tested |
+| 3 | Automated backups and restore drills | Daily backup worker validates archives. Requires persistent BACKUP_DIR; optional restore drill requires a separate BACKUP_RESTORE_TEST_DATABASE_URL. Neither external storage nor real restore has been verified here |
 | 4 | Confirmation for destructive actions | Implemented for high-impact GDE.WTF commands with one-shot 45-second user/chat-bound callback tokens; in-memory only, so pending prompts do not survive a restart. Requires a real bot test, including reply-to-message targeting |
 | 5 | Concurrency-safe business updates | Requires an audit of each counter/upsert path and transaction-level tests |
 | 6 | GDE.WTF API circuit breaker | Connected to `_api()`: threshold 4, 10-second recovery, one half-open probe, no automatic mutation retries; unit tests cover recovery and probe cancellation. Needs live fault-injection verification |
@@ -45,7 +45,7 @@ commands, moderation handlers, settings, and stored records are not removed.
 | 14 | Retention and archival | Event table prepared; retention policy and bounded cleanup worker still need implementation |
 | 15 | Load and recovery tests | Not implemented yet; requires a staging bot/token and isolated test database |
 
-## Not complete in this branch\n\nThe operation helper is not yet connected to mutation requests. Automated off-host backups and a destructive restore drill are not implemented. Full Telegram message/keyboard redesign, real PostgreSQL/API integration tests, and load/recovery tests still require a staging bot, isolated database, and backup destination. Do not interpret a successful Python compile as proof of live API compatibility.\n\n## Deployment safety
+## Not complete in this branch\n\nThe operation helper is not yet connected to mutation requests. The backup worker exists, but persistent backup storage and an isolated restore-test database are not configured here. Full Telegram message/keyboard redesign, real PostgreSQL/API integration tests, and load/recovery tests still require a staging bot, isolated database, and backup destination. Do not interpret a successful Python compile as proof of live API compatibility.\n\n## Deployment safety
 
 Do not deploy this branch to the live bot until the Docker build and tests pass in the user's build environment and
 the advisory lock has been verified against the same PostgreSQL database used by the
