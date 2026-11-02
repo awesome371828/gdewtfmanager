@@ -215,12 +215,15 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
     semaphore = _GDEWTF_READ_SEMAPHORE if method == "GET" else _GDEWTF_WRITE_SEMAPHORE
     started_at = time.monotonic()
     request_ok = False
+    operation_id = None
     try:
         await semaphore.acquire()
     except asyncio.CancelledError:
         await _GDEWTF_CIRCUIT.abandon_probe()
         raise
     try:
+        if method != "GET" and _DURABLE_RUNTIME is not None:
+            operation_id = await _DURABLE_RUNTIME.begin_operation(method, normalized_path, body)
         if _API_SESSION is None or _API_SESSION.closed:
             async with _API_SESSION_LOCK:
                 if _API_SESSION is None or _API_SESSION.closed:
@@ -307,12 +310,16 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
                 elif method != "GET" and data.get("ok"):
                     _gdewtf_invalidate_api_cache()
                 request_ok = bool(data.get("ok"))
+                if operation_id:
+                    await _DURABLE_RUNTIME.finish_operation(operation_id, "success" if request_ok else "failed", None if request_ok else str(data)[:900])
                 return data
     except asyncio.CancelledError:
         # A cancelled half-open request must not permanently occupy the probe slot.
         await _GDEWTF_CIRCUIT.abandon_probe()
         raise
     except asyncio.TimeoutError as exc:
+        if operation_id:
+            await _DURABLE_RUNTIME.finish_operation(operation_id, "unknown", str(exc)[:900])
         await _GDEWTF_CIRCUIT.record_failure()
         _GDEWTF_DEGRADED_SINCE = _GDEWTF_DEGRADED_SINCE or time.monotonic()
         log_gdewtf.warning(
@@ -324,6 +331,8 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
             return stale
         return {"ok": False, "error": "api_unavailable", "detail": "timeout"}
     except aiohttp.ClientConnectorError as exc:
+        if operation_id:
+            await _DURABLE_RUNTIME.finish_operation(operation_id, "unknown", str(exc)[:900])
         await _GDEWTF_CIRCUIT.record_failure()
         _GDEWTF_DEGRADED_SINCE = _GDEWTF_DEGRADED_SINCE or time.monotonic()
         # This distinguishes DNS/TCP/TLS connection failures from a slow API response.
@@ -336,6 +345,8 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
             return stale
         return {"ok": False, "error": "api_unavailable", "detail": "connection"}
     except aiohttp.ClientError as exc:
+        if operation_id:
+            await _DURABLE_RUNTIME.finish_operation(operation_id, "unknown", str(exc)[:900])
         await _GDEWTF_CIRCUIT.record_failure()
         _GDEWTF_DEGRADED_SINCE = _GDEWTF_DEGRADED_SINCE or time.monotonic()
         log_gdewtf.warning(
