@@ -65,12 +65,27 @@ class DurableRuntime:
         await asyncio.to_thread(
             self._run,
             """INSERT INTO public.bot_gdewtf_operations
-               (operation_id, idempotency_key, action, payload, status, attempts)
-               VALUES (%s, %s, %s, %s::jsonb, 'processing', 1)""",
+               (operation_id, idempotency_key, action, payload, status, attempts, lease_until)
+               VALUES (%s, %s, %s, %s::jsonb, 'processing', 1, now() + interval '90 seconds')""",
             (operation_id, digest + ":" + operation_id, method.upper() + " " + path,
              json.dumps(payload or {}, ensure_ascii=False, default=str)),
         )
         return operation_id
+
+    async def recover_expired_operations(self) -> int:
+        def recover():
+            with self.db.connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """UPDATE public.bot_gdewtf_operations
+                           SET status='unknown', last_error=COALESCE(last_error, 'process stopped before result was stored'),
+                               updated_at=now(), lease_until=NULL
+                           WHERE status='processing' AND lease_until < now()"""
+                    )
+                    changed = cur.rowcount
+                conn.commit()
+                return changed
+        return await asyncio.to_thread(recover)
 
     async def list_unknown_operations(self, limit: int = 20):
         return await asyncio.to_thread(
