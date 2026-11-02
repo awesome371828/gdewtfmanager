@@ -17,8 +17,8 @@ commands, moderation handlers, settings, and stored records are not removed.
 - tests/test_reliability.py covers circuit opening, half-open probe exclusivity,
   recovery, and bounded latency samples.
 - The Docker build compiles the new module and runs the full unittest discovery.
-- index.html receives a restrained, responsive visual refresh: muted forest
-  palette, clearer hierarchy, accessible tabs, and less decorative UI.
+- index.html receives a restrained, responsive visual refresh for the Mini App shell.
+  This is not yet a complete redesign of every Telegram message and inline keyboard.
 
 ## Remaining implementation work — do not treat these as completed yet
 
@@ -35,14 +35,14 @@ commands, moderation handlers, settings, and stored records are not removed.
 | 9 | Telegram update deduplication | Table prepared; dispatcher middleware and retention policy still need implementation |
 | 10 | Background task bulkheads | GDE.WTF API reads (32) and writes (8) are isolated by separate semaphores. Other background workers still need independent limits |
 | 11 | Versioned migrations | Migration history foundation prepared; migration runner and preflight/rollback policy still need implementation |
-| 12 | Integration and failure-injection tests | Primitive tests added; Telegram/GDE.WTF/PostgreSQL scenario tests still need implementation |
+| 12 | Integration and failure-injection tests | Circuit-breaker unit tests expanded; Telegram/GDE.WTF/PostgreSQL integration and failure-injection tests are still missing. Tests have not been executed in this environment |
 | 13 | GDE.WTF API contract tests | Not implemented yet; requires verified API response samples/contracts |
 | 14 | Retention and archival | Event table prepared; retention policy and bounded cleanup worker still need implementation |
 | 15 | Load and recovery tests | Not implemented yet; requires a staging bot/token and isolated test database |
 
 ## Deployment safety
 
-Do not deploy this branch to the live bot until the Docker build and tests pass and
+Do not deploy this branch to the live bot until the Docker build and tests pass in the user's build environment and
 the advisory lock has been verified against the same PostgreSQL database used by the
 Relax Dev instance. The SQL migration is additive, but should still be backed up
 before it is applied. Never replay an uncertain mutating API request until the
