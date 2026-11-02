@@ -64,9 +64,13 @@ class AsyncCircuitBreaker:
 
     async def record_failure(self) -> None:
         async with self._lock:
+            was_probe = self._probe_in_flight
             self._probe_in_flight = False
             self._failures += 1
-            if self._failures >= self.failure_threshold:
+            if was_probe or self._failures >= self.failure_threshold:
+                # Restart the recovery window after a failed half-open probe.
+                # Otherwise an expired _opened_at would permit immediate probes
+                # in a tight loop against an upstream that is still down.
                 self._opened_at = time.monotonic()
 
     async def snapshot(self) -> CircuitSnapshot:
