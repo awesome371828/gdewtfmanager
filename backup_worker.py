@@ -23,11 +23,13 @@ async def _run(*args: str, env: dict[str, str] | None = None) -> tuple[int, str]
 async def backup_worker() -> None:
     """Run once at startup, then every 24h. BACKUP_DIR must be a persistent mounted volume."""
     database_url = os.getenv("DATABASE_URL", "").strip()
-    backup_dir = os.getenv("BACKUP_DIR", "").strip()
+    backup_dir = os.getenv("BACKUP_DIR", "/app/backups").strip()
     restore_url = os.getenv("BACKUP_RESTORE_TEST_DATABASE_URL", "").strip()
     if not database_url or not backup_dir:
-        log.warning("Automated backups disabled: set DATABASE_URL and persistent BACKUP_DIR")
+        log.warning("Automated backups disabled: DATABASE_URL is unavailable")
         return
+    if not restore_url:
+        log.warning("No isolated restore-test database configured; archives will be structurally validated only")
     if restore_url and restore_url == database_url:
         log.error("Restore drill refused: test database URL equals production DATABASE_URL")
         restore_url = ""
