@@ -315,4 +315,8 @@ class PostgresClient:
         return PostgresRPC(self, name, params)
 
 def create_client_from_env() -> PostgresClient:
-    return PostgresClient(os.getenv("DATABASE_URL", "").strip())
+    client = PostgresClient(os.getenv("DATABASE_URL", "").strip())
+    if not client.acquire_advisory_lock(788170909112):
+        client.close()
+        raise RuntimeError("A GDE.WTF poller already owns the PostgreSQL advisory lock")
+    return client
