@@ -72,6 +72,21 @@ class DurableRuntime:
         )
         return operation_id
 
+    async def prune_processed_updates(self, retention_days: int = 30) -> int:
+        def prune():
+            with self.db.connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """DELETE FROM public.bot_telegram_updates
+                           WHERE status IN ('processed','failed')
+                             AND received_at < now() - (%s * interval '1 day')""",
+                        (max(7, min(180, int(retention_days))),),
+                    )
+                    changed = cur.rowcount
+                conn.commit()
+                return changed
+        return await asyncio.to_thread(prune)
+
     async def recover_expired_operations(self) -> int:
         def recover():
             with self.db.connect() as conn:
