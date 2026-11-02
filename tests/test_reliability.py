@@ -59,3 +59,22 @@ class CircuitBreakerTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConfirmationStoreTests(unittest.TestCase):
+    def test_user_chat_binding_and_one_shot(self):
+        from confirmations import ConfirmationStore
+        store = ConfirmationStore(ttl=30)
+        token = store.create(user_id=1, chat_id=2, message_id=3, command="!бан @x")
+        self.assertIsNone(store.consume(token, user_id=2, chat_id=2))
+        self.assertIsNone(store.consume(token, user_id=1, chat_id=4))
+        self.assertEqual(store.consume(token, user_id=1, chat_id=2)["command"], "!бан @x")
+        self.assertIsNone(store.consume(token, user_id=1, chat_id=2))
+
+    def test_confirmation_capacity_is_bounded(self):
+        from confirmations import ConfirmationStore
+        store = ConfirmationStore(ttl=30, capacity=2)
+        first = store.create(user_id=1, chat_id=2, message_id=3, command="a")
+        store.create(user_id=1, chat_id=2, message_id=4, command="b")
+        store.create(user_id=1, chat_id=2, message_id=5, command="c")
+        self.assertIsNone(store.consume(first, user_id=1, chat_id=2))
