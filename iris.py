@@ -8440,6 +8440,9 @@ async def main() -> None:
     # manually, not repeated during host restarts/deployments.
     if db is not None:
         try:
+            applied = await asyncio.to_thread(_DURABLE_RUNTIME.apply_migrations)
+            if applied:
+                log.info("Applied PostgreSQL migrations: %s", ", ".join(applied))
             schema_problems = await asyncio.to_thread(check_schema, db)
             _SCHEMA_PROBLEMS = list(schema_problems)
             if schema_problems:
