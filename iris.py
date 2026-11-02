@@ -208,6 +208,7 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
 
     semaphore = _GDEWTF_READ_SEMAPHORE if method == "GET" else _GDEWTF_WRITE_SEMAPHORE
     started_at = time.monotonic()
+    request_ok = False
     await semaphore.acquire()
     try:
         if _API_SESSION is None or _API_SESSION.closed:
@@ -280,6 +281,7 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
                 if not data.get("ok") and cache_key is not None:
                     stale = _gdewtf_stale_read(cache_key, normalized_path)
                     if stale is not None:
+                        request_ok = True
                         return stale
                 # Cache only successful GET responses. Error states and writes are never cached.
                 if cache_key is not None and data.get("ok"):
@@ -294,6 +296,7 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
                             _GDEWTF_API_CACHE.pop(next(iter(_GDEWTF_API_CACHE)))
                 elif method != "GET" and data.get("ok"):
                     _gdewtf_invalidate_api_cache()
+                request_ok = bool(data.get("ok"))
                 return data
     except asyncio.CancelledError:
         # Cancellation is a caller/shutdown event, not evidence of upstream failure.
@@ -307,6 +310,7 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
         )
         stale = _gdewtf_stale_read(cache_key, normalized_path) if cache_key is not None else None
         if stale is not None:
+            request_ok = True
             return stale
         return {"ok": False, "error": "api_unavailable", "detail": "timeout"}
     except aiohttp.ClientConnectorError as exc:
@@ -335,7 +339,7 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
 
     finally:
         semaphore.release()
-        await _GDEWTF_API_LATENCY.add(time.monotonic() - started_at, ok=not bool(locals().get("data", {}).get("ok") is False))
+        await _GDEWTF_API_LATENCY.add(time.monotonic() - started_at, ok=request_ok)
 
 
 def _clean(value: Any, default: str = "—") -> str:
