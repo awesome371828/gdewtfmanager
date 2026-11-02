@@ -47,6 +47,7 @@ from aiogram.types import (
 )
 from postgres_adapter import PostgresClient, create_client_from_env
 from confirmations import ConfirmationStore
+from durable_runtime import DurableRuntime, TelegramUpdateDedupMiddleware
 from reliability import AsyncCircuitBreaker, CircuitOpenError, RollingLatency
 
 try:
@@ -1807,6 +1808,11 @@ bot = LowLatencyBot(
     default=DefaultBotProperties(parse_mode=ParseMode.HTML, link_preview_is_disabled=True),
 )
 dp = Dispatcher()
+if db is not None:
+    _DURABLE_RUNTIME = DurableRuntime(db)
+    dp.update.outer_middleware(TelegramUpdateDedupMiddleware(_DURABLE_RUNTIME, log))
+else:
+    _DURABLE_RUNTIME = None
 router = Router()
 dp.include_router(gdewtf_router)
 dp.include_router(router)
