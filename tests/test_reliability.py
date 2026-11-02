@@ -38,6 +38,15 @@ class CircuitBreakerTests(unittest.IsolatedAsyncioTestCase):
         await breaker.before_call()
         await breaker.record_success()
 
+    async def test_abandoned_half_open_probe_can_be_retried(self):
+        breaker = AsyncCircuitBreaker(failure_threshold=1, recovery_timeout=0.01)
+        await breaker.record_failure()
+        await asyncio.sleep(0.02)
+        await breaker.before_call()
+        await breaker.abandon_probe()
+        await breaker.before_call()
+        await breaker.record_success()
+
     async def test_latency_window_is_bounded_and_reports_errors(self):
         metrics = RollingLatency(capacity=8)
         for i in range(20):
