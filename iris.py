@@ -8176,6 +8176,46 @@ async def extra_moderation_aliases(message: Message) -> None:
         return
 
 
+_GDEWTF_ALERT_STATE = "healthy"
+
+async def _gdewtf_degradation_monitor() -> None:
+    """Notify the owner once on degradation and once after recovery."""
+    global _GDEWTF_ALERT_STATE
+    while True:
+        await asyncio.sleep(10)
+        try:
+            snapshot = await _GDEWTF_CIRCUIT.snapshot()
+            current = "degraded" if snapshot.state in {"open", "half_open"} else "healthy"
+            if current == _GDEWTF_ALERT_STATE:
+                continue
+            metrics = await _GDEWTF_API_LATENCY.snapshot()
+            pool = db.pool_snapshot() if db is not None else {}
+            if current == "degraded":
+                text = (
+                    "⚠️ <b>GDE.WTF API: деградация</b>\\n"
+                    f"Защита: <code>{snapshot.state}</code> · ошибок подряд: <b>{snapshot.failures}</b>\\n"
+                    f"API за окно: {metrics['count']} запросов · ошибок: {metrics['errors']} · "
+                    f"P95: {metrics['p95_ms']} мс\\n"
+                    "Новые запросы временно ограничены, чтобы бот не зависал на недоступном API."
+                )
+            else:
+                text = (
+                    "✓ <b>GDE.WTF API восстановлен</b>\\n"
+                    f"Последнее окно: {metrics['count']} запросов · ошибок: {metrics['errors']} · "
+                    f"P95: {metrics['p95_ms']} мс"
+                )
+            try:
+                await bot.send_message(OWNER_ID, text, request_timeout=3)
+            except Exception as send_exc:
+                log.warning("Could not deliver GDE.WTF degradation notice: %s", type(send_exc).__name__)
+            _GDEWTF_ALERT_STATE = current
+            log.warning("GDE.WTF degradation state changed to %s (db_pool=%s)", current, pool)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("GDE.WTF degradation monitor iteration failed")
+
+
 async def _worker_watchdog(
     tasks: dict[str, asyncio.Task],
     factories: dict[str, Any],
@@ -8390,6 +8430,7 @@ async def main() -> None:
     worker_factories = {
         "pear-activity-writer": _activity_writer_loop,
         "pear-chat-scheduler": _schedule_worker,
+        "gdewtf-degradation-monitor": _gdewtf_degradation_monitor,
     }
     worker_tasks = {
         name: asyncio.create_task(factory(), name=name)
