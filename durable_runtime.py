@@ -72,6 +72,25 @@ class DurableRuntime:
         )
         return operation_id
 
+    async def list_unknown_operations(self, limit: int = 20):
+        return await asyncio.to_thread(
+            lambda: self._run(
+                """SELECT operation_id::text, action, created_at, last_error
+                   FROM public.bot_gdewtf_operations
+                   WHERE status='unknown'
+                   ORDER BY updated_at ASC LIMIT %s""",
+                (max(1, min(100, int(limit))),), fetch=False,
+            )
+        )
+
+    async def unknown_operation_count(self) -> int:
+        def count():
+            with self.db.connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT count(*) AS n FROM public.bot_gdewtf_operations WHERE status='unknown'")
+                    return int(cur.fetchone()["n"])
+        return await asyncio.to_thread(count)
+
     async def finish_operation(self, operation_id: str, status: str, error: str | None = None) -> None:
         if status not in {"success", "failed", "unknown"}:
             raise ValueError("invalid operation terminal status")
