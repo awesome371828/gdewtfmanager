@@ -111,5 +111,10 @@ class TelegramUpdateDedupMiddleware:
             except Exception:
                 self.logger.exception("Could not persist failed Telegram update %s", update_id)
             raise
-        await self.runtime.finish_update(update_id)
+        try:
+            await self.runtime.finish_update(update_id)
+        except Exception:
+            # The handler already completed; do not turn a bookkeeping outage into
+            # a Telegram retry that could repeat a completed side effect.
+            self.logger.exception("Could not persist processed Telegram update %s", update_id)
         return result
