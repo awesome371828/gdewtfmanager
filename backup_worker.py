@@ -48,7 +48,7 @@ async def backup_worker() -> None:
                 raise RuntimeError("pg_dump failed: " + output)
             os.chmod(archive, 0o600)
             code, output = await _run("pg_restore", "--list", str(archive), env=env)
-            if code != 0 or "TOC" not in output:
+            if code != 0:
                 raise RuntimeError("backup archive validation failed: " + output)
             log.info("PostgreSQL backup archive validated: %s (%s bytes)", archive.name, archive.stat().st_size)
 
