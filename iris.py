@@ -919,9 +919,12 @@ async def gdewtf_command(message: Message) -> None:
     if confirm_key in _GDEWTF_CONFIRM_BYPASS:
         _GDEWTF_CONFIRM_BYPASS.discard(confirm_key)
     elif action in _GDEWTF_DANGEROUS_ACTIONS:
+        command_to_confirm = text
+        if not rest and message.reply_to_message and message.reply_to_message.from_user:
+            command_to_confirm = f"gde {action} {message.reply_to_message.from_user.id}"
         token = _GDEWTF_CONFIRMATIONS.create(
             user_id=message.from_user.id, chat_id=message.chat.id,
-            message_id=message.message_id, command=text,
+            message_id=message.message_id, command=command_to_confirm,
         )
         target_name = rest[0] if rest else "не указана"
         keyboard = InlineKeyboardMarkup(inline_keyboard=[[
