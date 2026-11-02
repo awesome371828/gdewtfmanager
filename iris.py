@@ -376,6 +376,9 @@ def _error_text(data: dict[str, Any]) -> str:
         return "Не удалось подключиться к GDE.WTF (DNS/TCP/TLS). Проверь доступность домена с хоста Relax Dev."
     if err == "api_unavailable" and detail == "timeout":
         return "GDE.WTF не ответил за 1,8 секунды. Это тайм-аут внешнего API."
+    if err == "api_unavailable" and detail == "circuit_open":
+        retry = data.get("retry_after")
+        return f"GDE.WTF временно перегружен или недоступен. Защитный режим активен; повтори позже (примерно через {retry} с)."
     messages = {
         "api_key_not_configured": "Не задан секрет GDEWTF_API_KEY в окружении хоста.",
         "api_unavailable": "GDE.WTF API недоступен или не ответил за 1,8 секунды.",
