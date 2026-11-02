@@ -17,6 +17,7 @@ RUN python -m pip install --upgrade pip \
 # Copy every local module imported by the application, including PostgreSQL adapter.
 COPY iris.py moderation_full.py pear_core.py postgres_adapter.py reliability.py schema.sql entrypoint.sh ./
 COPY tests ./tests
+COPY migrations ./migrations
 # Static regression tests inspect the build recipe; include it in the test image.
 COPY Dockerfile ./Dockerfile
 COPY .dockerignore ./.dockerignore
