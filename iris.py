@@ -46,6 +46,7 @@ from aiogram.types import (
     ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, MenuButtonWebApp,
 )
 from postgres_adapter import PostgresClient, create_client_from_env
+from reliability import AsyncCircuitBreaker, CircuitOpenError, RollingLatency
 
 try:
     import fcntl
@@ -129,6 +130,14 @@ _GDEWTF_API_CACHE: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
 _GDEWTF_API_CACHE_TTL = {"/mods": 4.0, "/cities": 30.0, "/ping": 2.0, "/mod": 2.0}
 _GDEWTF_API_CACHE_LOCK = asyncio.Lock()
 
+# Protect GDE.WTF independently from Telegram handlers. Reads and mutations have
+# separate bulkheads so a burst of directory lookups cannot starve moderation.
+_GDEWTF_CIRCUIT = AsyncCircuitBreaker(failure_threshold=4, recovery_timeout=10.0)
+_GDEWTF_API_LATENCY = RollingLatency(capacity=256)
+_GDEWTF_READ_SEMAPHORE = asyncio.Semaphore(32)
+_GDEWTF_WRITE_SEMAPHORE = asyncio.Semaphore(8)
+_GDEWTF_DEGRADED_SINCE: float | None = None
+
 
 def _gdewtf_cache_key(path: str, params: dict[str, Any] | None) -> tuple[str, str]:
     normalized_path = "/" + path.lstrip("/")
@@ -183,6 +192,22 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
         cached = _GDEWTF_API_CACHE.get(cache_key)
         if cached and time.monotonic() - cached[0] < cache_ttl:
             return dict(cached[1])
+
+    # Circuit breaker is consulted only for a real upstream call (not cache hits).
+    # A blocked read may use a narrowly-scoped stale public directory snapshot;
+    # authorization and mutation requests never use stale data.
+    try:
+        await _GDEWTF_CIRCUIT.before_call()
+    except CircuitOpenError as exc:
+        stale = _gdewtf_stale_read(cache_key, normalized_path)
+        if stale is not None:
+            return stale
+        return {"ok": False, "error": "api_unavailable", "detail": "circuit_open",
+                "retry_after": round(exc.retry_after, 1)}
+
+    semaphore = _GDEWTF_READ_SEMAPHORE if method == "GET" else _GDEWTF_WRITE_SEMAPHORE
+    started_at = time.monotonic()
+    await semaphore.acquire()
     try:
         if _API_SESSION is None or _API_SESSION.closed:
             async with _API_SESSION_LOCK:
@@ -243,6 +268,14 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
                 if response.status >= 400:
                     data.setdefault("ok", False)
                     data.setdefault("http_status", response.status)
+                # 5xx indicates upstream failure. 4xx (including 429) proves
+                # the server is reachable and must not trip the breaker.
+                if response.status >= 500:
+                    await _GDEWTF_CIRCUIT.record_failure()
+                    _GDEWTF_DEGRADED_SINCE = _GDEWTF_DEGRADED_SINCE or time.monotonic()
+                else:
+                    await _GDEWTF_CIRCUIT.record_success()
+                    _GDEWTF_DEGRADED_SINCE = None
                 if not data.get("ok") and cache_key is not None:
                     stale = _gdewtf_stale_read(cache_key, normalized_path)
                     if stale is not None:
@@ -261,7 +294,12 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
                 elif method != "GET" and data.get("ok"):
                     _gdewtf_invalidate_api_cache()
                 return data
+    except asyncio.CancelledError:
+        # Cancellation is a caller/shutdown event, not evidence of upstream failure.
+        raise
     except asyncio.TimeoutError as exc:
+        await _GDEWTF_CIRCUIT.record_failure()
+        _GDEWTF_DEGRADED_SINCE = _GDEWTF_DEGRADED_SINCE or time.monotonic()
         log_gdewtf.warning(
             "GDE.WTF API timeout (%s %s, base=%s, total=%.1fs)",
             method, path, API_BASE, (request_timeout or _TIMEOUT).total,
@@ -271,6 +309,8 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
             return stale
         return {"ok": False, "error": "api_unavailable", "detail": "timeout"}
     except aiohttp.ClientConnectorError as exc:
+        await _GDEWTF_CIRCUIT.record_failure()
+        _GDEWTF_DEGRADED_SINCE = _GDEWTF_DEGRADED_SINCE or time.monotonic()
         # This distinguishes DNS/TCP/TLS connection failures from a slow API response.
         log_gdewtf.warning(
             "GDE.WTF API connection failed (%s %s, base=%s): %s: %s",
@@ -281,6 +321,8 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
             return stale
         return {"ok": False, "error": "api_unavailable", "detail": "connection"}
     except aiohttp.ClientError as exc:
+        await _GDEWTF_CIRCUIT.record_failure()
+        _GDEWTF_DEGRADED_SINCE = _GDEWTF_DEGRADED_SINCE or time.monotonic()
         log_gdewtf.warning(
             "GDE.WTF API client error (%s %s, base=%s): %s: %s",
             method, path, API_BASE, type(exc).__name__, str(exc)[:240],
@@ -289,6 +331,10 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
         if stale is not None:
             return stale
         return {"ok": False, "error": "api_unavailable", "detail": "client_error"}
+
+    finally:
+        semaphore.release()
+        await _GDEWTF_API_LATENCY.add(time.monotonic() - started_at, ok=not bool(locals().get("data", {}).get("ok") is False))
 
 
 def _clean(value: Any, default: str = "—") -> str:
