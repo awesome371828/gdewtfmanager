@@ -2,41 +2,78 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#10140f">
-<title>GDE.WTF</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#171b18">
+<title>GDE.WTF — пространство проекта</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
-*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#10140f;color:#fff;font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-body{display:flex;flex-direction:column;padding-top:env(safe-area-inset-top)}
-nav{display:flex;gap:8px;padding:8px;background:#10140f;border-bottom:1px solid #ffffff1a;flex-shrink:0}
-button{flex:1;border:1px solid #ffffff20;background:#1a2117;color:#d9e5d0;border-radius:10px;padding:11px 8px;font:700 13px inherit;cursor:pointer}
-button.active{background:#d8ff83;color:#182014;border-color:#d8ff83}
-main{position:relative;flex:1;min-height:0}
+:root{color-scheme:dark;--bg:#171b18;--panel:#202722;--panel2:#252e28;--line:#39443c;--text:#f1f3ee;--muted:#aab4aa;--accent:#c6d6b4;--accent-ink:#1c251e;--radius:14px}
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;background:var(--bg);color:var(--text);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+body{display:flex;flex-direction:column;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 18px 13px;border-bottom:1px solid var(--line);background:var(--bg);flex-shrink:0}
+.brand{display:flex;align-items:center;gap:11px;min-width:0}
+.mark{width:34px;height:34px;border:1px solid #71806f;border-radius:10px;display:grid;place-items:center;color:var(--accent);font-size:17px;font-weight:800;letter-spacing:-1px}
+.brand-name{font-size:15px;font-weight:750;letter-spacing:.04em}
+.brand-sub{font-size:11px;color:var(--muted);margin-top:1px}
+.header-note{font-size:11px;color:var(--muted);white-space:nowrap}
+nav{display:flex;gap:7px;padding:12px 18px;background:var(--bg);flex-shrink:0}
+nav button{appearance:none;border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--muted);padding:9px 14px;font:600 13px inherit;cursor:pointer;transition:background .15s,border-color .15s,color .15s}
+nav button[aria-selected="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+main{position:relative;flex:1;min-height:0;padding:0 12px 12px}
+.surface{height:100%;overflow:hidden;border:1px solid var(--line);border-radius:var(--radius);background:#fff;position:relative}
 iframe{display:none;width:100%;height:100%;border:0;background:#fff}
 iframe.active{display:block}
-#fallback{display:none;position:absolute;inset:0;align-items:center;justify-content:center;flex-direction:column;gap:12px;padding:24px;text-align:center;background:#10140f}
-#fallback p{color:#b6c2ac;line-height:1.5}
-#fallback a{color:#182014;background:#d8ff83;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:800}
+#fallback{display:none;position:absolute;inset:0;align-items:center;justify-content:center;flex-direction:column;gap:12px;padding:28px;text-align:center;background:var(--panel)}
+#fallback strong{font-size:16px}
+#fallback p{max-width:320px;color:var(--muted);margin:0}
+#fallback a{display:inline-flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-ink);text-decoration:none;padding:11px 17px;border-radius:9px;font-weight:700}
+footer{padding:0 18px 12px;color:#879287;font-size:10px;display:flex;justify-content:space-between;gap:12px;flex-shrink:0}
+button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+@media(min-width:700px){header{padding-left:24px;padding-right:24px}nav{padding-left:24px;padding-right:24px}main{padding-left:20px;padding-right:20px;padding-bottom:16px}footer{padding-left:24px;padding-right:24px}}
 </style>
 </head>
 <body>
-<nav aria-label="Сайты GDE.WTF">
-<button class="active" data-site="home">gde.wtf</button>
-<button data-site="map">map.gde.wtf</button>
+<header>
+  <div class="brand">
+    <div class="mark" aria-hidden="true">G</div>
+    <div><div class="brand-name">GDE.WTF</div><div class="brand-sub">Пространство проекта</div></div>
+  </div>
+  <div class="header-note">Официальные ресурсы</div>
+</header>
+<nav aria-label="Разделы проекта">
+  <button type="button" data-site="home" aria-selected="true">Главная</button>
+  <button type="button" data-site="map" aria-selected="false">Карта</button>
 </nav>
 <main>
-<iframe id="home" class="active" title="GDE.WTF" src="https://gde.wtf/" allow="geolocation; clipboard-read; clipboard-write; notifications" referrerpolicy="strict-origin-when-cross-origin"></iframe>
-<iframe id="map" title="GDE.WTF карта" data-src="https://map.gde.wtf/" allow="geolocation; clipboard-read; clipboard-write; notifications" referrerpolicy="strict-origin-when-cross-origin"></iframe>
-<div id="fallback"><strong>Сайт не разрешает отображение внутри приложения</strong><p>Открой оригинальную страницу в браузере.</p><a id="openExternal" href="https://gde.wtf/" target="_blank" rel="noopener">Открыть сайт ↗</a></div>
+  <div class="surface">
+    <iframe id="home" class="active" title="Главная страница GDE.WTF" src="https://gde.wtf/" allow="geolocation; clipboard-read; clipboard-write; notifications" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+    <iframe id="map" title="Карта GDE.WTF" data-src="https://map.gde.wtf/" allow="geolocation; clipboard-read; clipboard-write; notifications" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+    <section id="fallback" role="status">
+      <strong>Страница открывается отдельно</strong>
+      <p>Этот ресурс запрещает отображение внутри приложения. Его можно открыть в браузере.</p>
+      <a id="openExternal" href="https://gde.wtf/" target="_blank" rel="noopener">Открыть страницу</a>
+    </section>
+  </div>
 </main>
+<footer><span>GDE.WTF · Сообщество и инструменты</span><span>Telegram Mini App</span></footer>
 <script>
 const tg=window.Telegram&&window.Telegram.WebApp;
-try{if(tg){tg.ready();tg.expand();tg.setHeaderColor('#10140f');tg.setBackgroundColor('#10140f')}}catch(e){}
+try{if(tg){tg.ready();tg.expand();tg.setHeaderColor('#171b18');tg.setBackgroundColor('#171b18')}}catch(_){}
 const urls={home:'https://gde.wtf/',map:'https://map.gde.wtf/'};
-function select(key){document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.site===key));document.querySelectorAll('iframe').forEach(f=>f.classList.toggle('active',f.id===key));const frame=document.getElementById(key);if(!frame.src||frame.src==='about:blank')frame.src=urls[key];document.getElementById('openExternal').href=urls[key];document.getElementById('fallback').style.display='none';try{tg&&tg.HapticFeedback&&tg.HapticFeedback.selectionChanged()}catch(e){}}
+function select(key){
+  document.querySelectorAll('nav button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.site===key)));
+  document.querySelectorAll('iframe').forEach(f=>f.classList.toggle('active',f.id===key));
+  const frame=document.getElementById(key);
+  if(!frame.getAttribute('src'))frame.setAttribute('src',urls[key]);
+  document.getElementById('openExternal').href=urls[key];
+  document.getElementById('fallback').style.display='none';
+  try{if(tg&&tg.HapticFeedback)tg.HapticFeedback.selectionChanged()}catch(_){}
+}
 document.querySelectorAll('nav button').forEach(b=>b.addEventListener('click',()=>select(b.dataset.site)));
-document.getElementById('openExternal').addEventListener('click',e=>{if(tg&&tg.openLink){e.preventDefault();tg.openLink(e.currentTarget.href)}});
+document.getElementById('openExternal').addEventListener('click',e=>{
+  if(tg&&tg.openLink){e.preventDefault();tg.openLink(e.currentTarget.href)}
+});
 </script>
 </body>
 </html>
