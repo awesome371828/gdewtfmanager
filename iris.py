@@ -177,6 +177,7 @@ def _gdewtf_stale_read(
 async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
                body: dict[str, Any] | None = None,
                request_timeout: aiohttp.ClientTimeout | None = None) -> dict[str, Any]:
+    global _GDEWTF_DEGRADED_SINCE
     if not API_KEY:
         return {"ok": False, "error": "api_key_not_configured"}
     headers = {
