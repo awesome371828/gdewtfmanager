@@ -311,15 +311,27 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
                     _gdewtf_invalidate_api_cache()
                 request_ok = bool(data.get("ok"))
                 if operation_id:
-                    await _DURABLE_RUNTIME.finish_operation(operation_id, "success" if request_ok else "failed", None if request_ok else str(data)[:900])
+                    op_status = "unknown" if response.status >= 500 else ("success" if request_ok else "failed")
+                    try:
+                        await _DURABLE_RUNTIME.finish_operation(operation_id, op_status, None if op_status == "success" else str(data)[:900])
+                    except Exception:
+                        log_gdewtf.exception("Could not persist GDE.WTF operation result %s", operation_id)
                 return data
     except asyncio.CancelledError:
+        if operation_id:
+            try:
+                await asyncio.shield(_DURABLE_RUNTIME.finish_operation(operation_id, "unknown", "request cancelled after dispatch"))
+            except Exception:
+                log_gdewtf.exception("Could not mark cancelled operation as unknown")
         # A cancelled half-open request must not permanently occupy the probe slot.
         await _GDEWTF_CIRCUIT.abandon_probe()
         raise
     except asyncio.TimeoutError as exc:
         if operation_id:
-            await _DURABLE_RUNTIME.finish_operation(operation_id, "unknown", str(exc)[:900])
+            try:
+                await _DURABLE_RUNTIME.finish_operation(operation_id, "unknown", str(exc)[:900])
+            except Exception:
+                log_gdewtf.exception("Could not persist unknown operation state")
         await _GDEWTF_CIRCUIT.record_failure()
         _GDEWTF_DEGRADED_SINCE = _GDEWTF_DEGRADED_SINCE or time.monotonic()
         log_gdewtf.warning(
@@ -8302,6 +8314,40 @@ async def _gdewtf_degradation_monitor() -> None:
             log.exception("GDE.WTF degradation monitor iteration failed")
 
 
+async def _gdewtf_operation_reconciliation_monitor() -> None:
+    """Surface uncertain writes for operator reconciliation; never blindly replay them."""
+    reported: set[str] = set()
+    while True:
+        await asyncio.sleep(30)
+        if _DURABLE_RUNTIME is None:
+            continue
+        try:
+            rows = await _DURABLE_RUNTIME.list_unknown_operations(25)
+            current = {str(row["operation_id"]) for row in rows}
+            for row in rows:
+                operation_id = str(row["operation_id"])
+                if operation_id in reported:
+                    continue
+                message = (
+                    "⚠️ <b>GDE.WTF: операция требует сверки</b>\\n"
+                    f"ID: <code>{_clean(operation_id)}</code>\\n"
+                    f"Запрос: <code>{_clean(row['action'])}</code>\\n"
+                    f"Ошибка: <code>{_clean(row.get('last_error') or 'неизвестный результат')}</code>\\n"
+                    "Автоматический повтор отключён, чтобы не выполнить действие дважды. "
+                    "Проверь результат в GDE.WTF и журнале операций."
+                )
+                try:
+                    await bot.send_message(OWNER_ID, message, request_timeout=4)
+                    reported.add(operation_id)
+                except Exception:
+                    log.exception("Could not alert owner about uncertain operation %s", operation_id)
+            reported.intersection_update(current)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("Operation reconciliation monitor failed")
+
+
 async def _worker_watchdog(
     tasks: dict[str, asyncio.Task],
     factories: dict[str, Any],
@@ -8516,7 +8562,7 @@ async def main() -> None:
     worker_factories = {
         "pear-activity-writer": _activity_writer_loop,
         "pear-chat-scheduler": _schedule_worker,
-        "gdewtf-degradation-monitor": _gdewtf_degradation_monitor,
+        "gdewtf-degradation-monitor": _gdewtf_degradation_monitor,\n        "gdewtf-operation-reconciliation": _gdewtf_operation_reconciliation_monitor,
         "postgres-backup-worker": backup_worker,
     }
     worker_tasks = {
