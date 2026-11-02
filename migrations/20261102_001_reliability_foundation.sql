@@ -35,8 +35,10 @@ CREATE TABLE IF NOT EXISTS public.bot_telegram_updates (
         CHECK (status IN ('processing','processed','failed')),
     received_at timestamptz NOT NULL DEFAULT now(),
     processed_at timestamptz,
+    lease_until timestamptz,
     last_error text
 );
+ALTER TABLE public.bot_telegram_updates ADD COLUMN IF NOT EXISTS lease_until timestamptz;
 CREATE INDEX IF NOT EXISTS bot_telegram_updates_received_idx
     ON public.bot_telegram_updates (received_at);
 
