@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import re
+import threading
 from dataclasses import dataclass
 from typing import Any
 
@@ -223,6 +224,8 @@ class PostgresClient:
         if "sslmode=" in dsn:
             dsn = re.sub(r"([?&])sslmode=[^&]*&?", r"\1", dsn).rstrip("?&")
         self.dsn = dsn
+        self._advisory_lock_conn = None
+        self._advisory_lock_mutex = threading.Lock()
         try:
             configured_max = int(os.getenv("POSTGRES_POOL_MAX_SIZE", "16"))
         except ValueError:
@@ -249,8 +252,60 @@ class PostgresClient:
         # The connection is returned to the pool when its context exits.
         return self.pool.connection()
 
+    def acquire_advisory_lock(self, lock_key: int = 8928168423) -> bool:
+        """Hold a PostgreSQL session advisory lock for this process lifetime.
+
+        The dedicated connection must remain open while polling is active.
+        Unlike a local flock, this also coordinates containers/hosts sharing
+        the same PostgreSQL database.
+        """
+        with self._advisory_lock_mutex:
+            if self._advisory_lock_conn is not None and not self._advisory_lock_conn.closed:
+                return True
+            conn = psycopg.connect(
+                self.dsn,
+                connect_timeout=3,
+                sslmode="disable",
+                row_factory=dict_row,
+                autocommit=True,
+            )
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT pg_try_advisory_lock(%s) AS acquired", (int(lock_key),))
+                    row = cur.fetchone()
+                if not row or not row["acquired"]:
+                    conn.close()
+                    return False
+                self._advisory_lock_conn = conn
+                return True
+            except Exception:
+                conn.close()
+                raise
+
+    def release_advisory_lock(self, lock_key: int = 8928168423) -> None:
+        """Release the process-wide lock and close its dedicated session."""
+        with self._advisory_lock_mutex:
+            conn = self._advisory_lock_conn
+            self._advisory_lock_conn = None
+            if conn is None:
+                return
+            try:
+                if not conn.closed:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT pg_advisory_unlock(%s)", (int(lock_key),))
+            finally:
+                conn.close()
+
+    def pool_snapshot(self) -> dict[str, Any]:
+        """Return psycopg-pool counters without issuing extra SQL queries."""
+        try:
+            return dict(self.pool.get_stats())
+        except Exception:
+            return {}
+
     def close(self) -> None:
-        """Close pooled connections during graceful shutdown."""
+        """Release the global lock and close pooled connections cleanly."""
+        self.release_advisory_lock()
         self.pool.close()
 
     def table(self, name: str):
