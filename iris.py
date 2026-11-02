@@ -1614,6 +1614,39 @@ async def gdewtf_command(message: Message) -> None:
             log_gdewtf.exception("Could not send GDE.WTF command error reply")
 
 
+@gdewtf_router.callback_query(F.data.startswith("gdeconfirm:"))
+async def gdewtf_confirmation_callback(callback: CallbackQuery) -> None:
+    if not callback.from_user or not callback.message:
+        await callback.answer()
+        return
+    try:
+        _, decision, token = (callback.data or "").split(":", 2)
+    except ValueError:
+        await callback.answer("Подтверждение недействительно", show_alert=True)
+        return
+    if decision == "no":
+        cancelled = _GDEWTF_CONFIRMATIONS.cancel(token, user_id=callback.from_user.id, chat_id=callback.message.chat.id)
+        await callback.answer("Отменено" if cancelled else "Подтверждение истекло", show_alert=not cancelled)
+        try:
+            await callback.message.edit_text("Действие отменено. Запрос в GDE.WTF не отправлялся.")
+        except TelegramBadRequest:
+            pass
+        return
+    item = _GDEWTF_CONFIRMATIONS.consume(token, user_id=callback.from_user.id, chat_id=callback.message.chat.id)
+    if not item:
+        await callback.answer("Подтверждение истекло или принадлежит другому пользователю", show_alert=True)
+        return
+    command_text = item["command"]
+    _GDEWTF_CONFIRM_BYPASS.add((callback.from_user.id, callback.message.chat.id, command_text))
+    synthetic = callback.message.model_copy(update={"from_user": callback.from_user, "text": command_text})
+    await callback.answer("Подтверждено")
+    try:
+        await callback.message.edit_text("⏳ <b>Выполняю подтверждённое действие…</b>")
+    except TelegramBadRequest:
+        pass
+    await gdewtf_command(synthetic)
+
+
 @gdewtf_router.callback_query(F.data.startswith("gdepanel:"))
 async def gdewtf_panel_callback(callback: CallbackQuery) -> None:
     if not callback.from_user or not callback.message:
