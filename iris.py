@@ -48,6 +48,7 @@ from aiogram.types import (
 from postgres_adapter import PostgresClient, create_client_from_env
 from confirmations import ConfirmationStore
 from durable_runtime import DurableRuntime, TelegramUpdateDedupMiddleware
+from backup_worker import backup_worker
 from reliability import AsyncCircuitBreaker, CircuitOpenError, RollingLatency
 
 try:
@@ -8505,6 +8506,7 @@ async def main() -> None:
         "pear-activity-writer": _activity_writer_loop,
         "pear-chat-scheduler": _schedule_worker,
         "gdewtf-degradation-monitor": _gdewtf_degradation_monitor,
+        "postgres-backup-worker": backup_worker,
     }
     worker_tasks = {
         name: asyncio.create_task(factory(), name=name)
