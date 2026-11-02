@@ -45,7 +45,11 @@ commands, moderation handlers, settings, and stored records are not removed.
 | 14 | Retention and archival | Event table prepared; retention policy and bounded cleanup worker still need implementation |
 | 15 | Load and recovery tests | Not implemented yet; requires a staging bot/token and isolated test database |
 
-## Not complete in this branch\n\nThe operation helper is not yet connected to mutation requests. The backup worker exists, but persistent backup storage and an isolated restore-test database are not configured here. Full Telegram message/keyboard redesign, real PostgreSQL/API integration tests, and load/recovery tests still require a staging bot, isolated database, and backup destination. Do not interpret a successful Python compile as proof of live API compatibility.\n\n## Deployment safety
+## Not complete in this branch
+
+The operation helper is not yet connected to mutation requests. The backup worker exists, but persistent backup storage and an isolated restore-test database are not configured here. Full Telegram message/keyboard redesign, real PostgreSQL/API integration tests, and load/recovery tests still require a staging bot, isolated database, and backup destination. Do not interpret a successful Python compile as proof of live API compatibility.
+
+## Deployment safety
 
 Do not deploy this branch to the live bot until the Docker build and tests pass in the user's build environment and
 the advisory lock has been verified against the same PostgreSQL database used by the
