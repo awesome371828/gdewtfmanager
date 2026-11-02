@@ -8322,6 +8322,7 @@ async def _gdewtf_operation_reconciliation_monitor() -> None:
         if _DURABLE_RUNTIME is None:
             continue
         try:
+            await _DURABLE_RUNTIME.recover_expired_operations()
             rows = await _DURABLE_RUNTIME.list_unknown_operations(25)
             current = {str(row["operation_id"]) for row in rows}
             for row in rows:
