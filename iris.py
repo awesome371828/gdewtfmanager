@@ -933,7 +933,7 @@ async def gdewtf_command(message: Message) -> None:
         ]])
         await _gdewtf_safe_answer(
             message,
-            f"⚠️ <b>Подтверди действие</b>\\nКоманда: <code>{_clean(text)}</code>\\nЦель: <code>{_clean(target_name)}</code>\\nСрок подтверждения: 45 секунд.",
+            f"⚠️ <b>Подтверди действие</b>\nКоманда: <code>{_clean(text)}</code>\nЦель: <code>{_clean(target_name)}</code>\nСрок подтверждения: 45 секунд.",
             reply_markup=keyboard,
         )
         return
@@ -1892,13 +1892,13 @@ async def bot_commands_topic_toggle(message: Message) -> None:
 
     if match.group(1) == "+":
         await message.answer(
-            "✅ <b>GDE.WTF работает во всех темах этой группы.</b>\\n"
+            "✅ <b>GDE.WTF работает во всех темах этой группы.</b>\n"
             "Команды, модерация и ответы доступны одинаково во всех разделах. "
             "Эта команда больше не ограничивает другие темы."
         )
     else:
         await message.answer(
-            "ℹ️ <b>GDE.WTF продолжает работать во всех темах.</b>\\n"
+            "ℹ️ <b>GDE.WTF продолжает работать во всех темах.</b>\n"
             "Отключение команд по отдельным темам убрано, чтобы команды не пропадали "
             "в «Общалке», «Новостях» и других разделах."
         )
@@ -5366,7 +5366,7 @@ async def list_chat_nicknames_cmd(message: Message) -> None:
     lines = [f"📒 <b>Ники чата</b> · {len(rows)}", ""]
     for index, row in enumerate(rows, 1):
         raw_nick = str(row.get("display_name") or "").strip()
-        raw_nick = re.sub(r"(?i)\\n", " ", raw_nick)
+        raw_nick = re.sub(r"(?i)\n", " ", raw_nick)
         raw_nick = re.sub(r"\s+", " ", raw_nick).strip()
         nick = escape(raw_nick or "Без имени")
         user = row.get("_user") or {}
@@ -8293,15 +8293,15 @@ async def _gdewtf_degradation_monitor() -> None:
             pool = db.pool_snapshot() if db is not None else {}
             if current == "degraded":
                 text = (
-                    "⚠️ <b>GDE.WTF API: деградация</b>\\n"
-                    f"Защита: <code>{snapshot.state}</code> · ошибок подряд: <b>{snapshot.failures}</b>\\n"
+                    "⚠️ <b>GDE.WTF API: деградация</b>\n"
+                    f"Защита: <code>{snapshot.state}</code> · ошибок подряд: <b>{snapshot.failures}</b>\n"
                     f"API за окно: {metrics['count']} запросов · ошибок: {metrics['errors']} · "
-                    f"P95: {metrics['p95_ms']} мс\\n"
+                    f"P95: {metrics['p95_ms']} мс\n"
                     "Новые запросы временно ограничены, чтобы бот не зависал на недоступном API."
                 )
             else:
                 text = (
-                    "✓ <b>GDE.WTF API восстановлен</b>\\n"
+                    "✓ <b>GDE.WTF API восстановлен</b>\n"
                     f"Последнее окно: {metrics['count']} запросов · ошибок: {metrics['errors']} · "
                     f"P95: {metrics['p95_ms']} мс"
                 )
@@ -8337,10 +8337,10 @@ async def _gdewtf_operation_reconciliation_monitor() -> None:
                 if operation_id in reported:
                     continue
                 message = (
-                    "⚠️ <b>GDE.WTF: операция требует сверки</b>\\n"
-                    f"ID: <code>{_clean(operation_id)}</code>\\n"
-                    f"Запрос: <code>{_clean(row['action'])}</code>\\n"
-                    f"Ошибка: <code>{_clean(row.get('last_error') or 'неизвестный результат')}</code>\\n"
+                    "⚠️ <b>GDE.WTF: операция требует сверки</b>\n"
+                    f"ID: <code>{_clean(operation_id)}</code>\n"
+                    f"Запрос: <code>{_clean(row['action'])}</code>\n"
+                    f"Ошибка: <code>{_clean(row.get('last_error') or 'неизвестный результат')}</code>\n"
                     "Автоматический повтор отключён, чтобы не выполнить действие дважды. "
                     "Проверь результат в GDE.WTF и журнале операций."
                 )
