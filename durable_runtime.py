@@ -9,6 +9,7 @@ import asyncio
 import hashlib
 import json
 import time
+from pathlib import Path
 import uuid
 from typing import Any
 
@@ -17,6 +18,19 @@ class DurableRuntime:
     def __init__(self, db: Any, *, lease_seconds: int = 90):
         self.db = db
         self.lease_seconds = int(lease_seconds)
+
+    def apply_migrations(self) -> list[str]:
+        directory = Path(__file__).resolve().parent / "migrations"
+        applied = []
+        if not directory.exists():
+            return applied
+        for migration in sorted(directory.glob("*.sql")):
+            with self.db.connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(migration.read_text(encoding="utf-8"))
+                conn.commit()
+            applied.append(migration.name)
+        return applied
 
     def _run(self, sql: str, params: tuple = (), *, fetch: bool = False):
         with self.db.connect() as conn:
