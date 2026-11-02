@@ -56,6 +56,11 @@ class AsyncCircuitBreaker:
                 raise CircuitOpenError(0.5)
             self._probe_in_flight = True
 
+    async def abandon_probe(self) -> None:
+        """Release a half-open probe slot when its caller is cancelled."""
+        async with self._lock:
+            self._probe_in_flight = False
+
     async def record_success(self) -> None:
         async with self._lock:
             self._failures = 0
