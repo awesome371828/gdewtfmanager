@@ -299,7 +299,8 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
                 request_ok = bool(data.get("ok"))
                 return data
     except asyncio.CancelledError:
-        # Cancellation is a caller/shutdown event, not evidence of upstream failure.
+        # A cancelled half-open request must not permanently occupy the probe slot.
+        await _GDEWTF_CIRCUIT.abandon_probe()
         raise
     except asyncio.TimeoutError as exc:
         await _GDEWTF_CIRCUIT.record_failure()
@@ -310,7 +311,6 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
         )
         stale = _gdewtf_stale_read(cache_key, normalized_path) if cache_key is not None else None
         if stale is not None:
-            request_ok = True
             return stale
         return {"ok": False, "error": "api_unavailable", "detail": "timeout"}
     except aiohttp.ClientConnectorError as exc:
