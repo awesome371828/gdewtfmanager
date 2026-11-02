@@ -8317,12 +8317,16 @@ async def _gdewtf_degradation_monitor() -> None:
 async def _gdewtf_operation_reconciliation_monitor() -> None:
     """Surface uncertain writes for operator reconciliation; never blindly replay them."""
     reported: set[str] = set()
+    last_prune = 0.0
     while True:
         await asyncio.sleep(30)
         if _DURABLE_RUNTIME is None:
             continue
         try:
             await _DURABLE_RUNTIME.recover_expired_operations()
+            if time.monotonic() - last_prune > 86400:
+                await _DURABLE_RUNTIME.prune_processed_updates(30)
+                last_prune = time.monotonic()
             rows = await _DURABLE_RUNTIME.list_unknown_operations(25)
             current = {str(row["operation_id"]) for row in rows}
             for row in rows:
