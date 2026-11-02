@@ -27,7 +27,7 @@ commands, moderation handlers, settings, and stored records are not removed.
 | 1 | Cross-container single-instance protection | Implemented in PostgreSQL client creation; must be verified on the actual Relax Dev database |
 | 2 | Durable GDE.WTF mutation outbox | Tables prepared; mutation handlers still need operation-by-operation integration and upstream idempotency confirmation |
 | 3 | Automated backups and restore drills | Not configured by this code change; must be configured for the Relax Dev database and tested |
-| 4 | Confirmation for destructive bulk actions | Not implemented yet |
+| 4 | Confirmation for destructive actions | Implemented for high-impact GDE.WTF commands with one-shot 45-second user/chat-bound callback tokens; in-memory only, so pending prompts do not survive a restart. Requires a real bot test, including reply-to-message targeting |
 | 5 | Concurrency-safe business updates | Requires an audit of each counter/upsert path and transaction-level tests |
 | 6 | GDE.WTF API circuit breaker | Connected to `_api()`: threshold 4, 10-second recovery, one half-open probe, no automatic mutation retries; unit tests cover recovery and probe cancellation. Needs live fault-injection verification |
 | 7 | End-to-end Telegram/API/database latency | GDE.WTF request latency/error window and separate read/write bulkheads are connected. Telegram handler/API timing and transport tuning remain incomplete; do not change Telegram timeouts without measurements |
