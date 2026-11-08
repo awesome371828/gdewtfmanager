@@ -1843,6 +1843,10 @@ async def normalize_dot_dk_prefix(handler, event, data):
         # Commands are enabled uniformly across every topic in every group.
         # Legacy per-topic settings are intentionally ignored; they must never
         # silently disable moderation or other commands in a topic.
+        if raw.casefold() == ".дк":
+            await command_rank_rule_cmd(event.model_copy(update={"text": "дк"}))
+            return None
+
         match = re.match(r"(?is)^\.дк\s+(.+)$", raw)
         if match:
             body = match.group(1).strip()
@@ -1923,6 +1927,20 @@ async def normalize_dot_dk_prefix(handler, event, data):
                         # Invalid settings must not crash dispatch; normal command
                         # authorization still runs in its own handler.
                         pass
+
+    # Support both Russian text aliases and English aiogram commands with
+    # the familiar dot/bang prefix. Russian aliases are passed to their text
+    # handlers; Latin command names become Telegram-style /commands so existing
+    # Command(...) filters continue to work. Slash commands are left untouched.
+    if not raw.casefold().startswith(".дк"):
+        prefixed = re.match(r"(?is)^([.!])([a-zа-яё][\\w-]*)(.*)$", raw)
+        if prefixed:
+            prefix, command, tail = prefixed.groups()
+            normalized_command = (
+                "/" + command + tail if command.isascii()
+                else command + tail
+            )
+            event = event.model_copy(update={"text": normalized_command})
 
     return await handler(event, data)
 
