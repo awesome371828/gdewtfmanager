@@ -1847,8 +1847,8 @@ async def normalize_dot_dk_prefix(handler, event, data):
         # Legacy per-topic settings are intentionally ignored; they must never
         # silently disable moderation or other commands in a topic.
         if raw.casefold() == ".дк":
-            await command_rank_rule_cmd(event.model_copy(update={"text": "дк"}))
-            return None
+            # Keep the original message and let aiogram dispatch it normally.
+            return await handler(event, data)
 
         match = re.match(r"(?is)^\.дк\s+(.+)$", raw)
         if match:
