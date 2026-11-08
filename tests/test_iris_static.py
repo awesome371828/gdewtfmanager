@@ -89,7 +89,8 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         start = self.source.index("async def normalize_dot_dk_prefix")
         end = self.source.index("# Register participant-call aliases", start)
         middleware = self.source[start:end]
-        self.assertIn('    raw = ""\\n    if isinstance(event, Message) and event.text:', middleware)
+        self.assertIn('    raw = ""', middleware)
+        self.assertIn('if isinstance(event, Message) and event.text:', middleware)
         self.assertIn('if not raw.casefold().startswith(".дк"):', middleware)
         self.assertIn('if raw.casefold() == ".дк":', middleware)
         self.assertEqual(middleware.count("return await handler(event, data)"), 2)
