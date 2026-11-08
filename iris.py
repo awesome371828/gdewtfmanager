@@ -1780,7 +1780,7 @@ def _normalize_natural_moderation_phrase(raw: str) -> str:
         return value
     # .дк is its own command namespace. Preserve it byte-for-byte so the
     # middleware does not turn ".дк бан 5" into ". дк бан 5".
-    if re.match(r"(?i)^\\.дк(?:\\s|$)", value):
+    if re.match(r"(?i)^\.дк(?:\s|$)", value):
         return value
     # Keep command prefixes, Telegram bot mentions, and all arguments intact.
     prefix = ""
