@@ -85,6 +85,8 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn('settings[f"modrank_{key}"] = required', rank_body)
 
     def test_dot_and_bang_prefixes_dispatch_to_existing_command_handlers(self):
+        self.assertIn('    raw = ""\n    if isinstance(event, Message) and event.text:', middleware)
+        self.assertIn('if not raw.casefold().startswith(".дк"):', middleware)
         start = self.source.index("async def normalize_dot_dk_prefix")
         end = self.source.index("# Register participant-call aliases", start)
         middleware = self.source[start:end]
