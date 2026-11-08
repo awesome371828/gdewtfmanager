@@ -93,6 +93,15 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertLess(early_route, legacy_route)
         self.assertIn("await command_rank_rule_cmd(message)", self.source[early_route:legacy_route])
 
+    def test_dot_dk_rank_rules_are_not_corrupted_by_natural_phrase_normalization(self):
+        start = self.source.index("def _normalize_natural_moderation_phrase")
+        end = self.source.index("_RANK_CHECKED_TEXT_COMMANDS", start)
+        normalizer = self.source[start:end]
+        guard = 'if re.match(r"(?i)^\\\\.дк(?:\\\\s|$)", value):'
+        self.assertIn(guard, normalizer)
+        self.assertIn("return value", normalizer[normalizer.index(guard):])
+        self.assertIn("Preserve it byte-for-byte", normalizer)
+
     def test_dot_and_bang_prefixes_dispatch_to_existing_command_handlers(self):
         start = self.source.index("async def normalize_dot_dk_prefix")
         end = self.source.index("# CRITICAL: register the .дк router as an OUTER middleware.", start)
