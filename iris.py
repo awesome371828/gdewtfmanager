@@ -1868,9 +1868,8 @@ async def normalize_dot_dk_prefix(handler, event, data):
                 and not parts[0].startswith("/")
             )
             if is_rule:
-                # Keep .дк configuration away from normal command handlers.
-                await command_rank_rule_cmd(event)
-                return None
+                # Keep the original .дк text and let aiogram select its handler.
+                return await handler(event, data)
             if not is_rule:
                 if event.from_user and is_group(event) and event.from_user.id != OWNER_ID:
                     command_token = re.sub(r"^[.!/]+", "", parts[0].lower())
