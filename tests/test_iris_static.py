@@ -91,7 +91,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn('    raw = ""\n    if isinstance(event, Message) and event.text:', middleware)
         self.assertIn('if not raw.casefold().startswith(".дк"):', middleware)
         self.assertIn('if raw.casefold() == ".дк":', middleware)
-        self.assertIn("return await handler(event, data)", middleware)
+        self.assertEqual(middleware.count("return await handler(event, data)"), 2)
         self.assertNotIn("await command_rank_rule_cmd(", middleware)
         self.assertIn('prefixed = re.match(', middleware)
         self.assertIn('"/" + command + tail if command.isascii()', middleware)
