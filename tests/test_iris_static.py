@@ -71,7 +71,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         middleware = self.source[start:end]
         self.assertIn("nick_rule = (", middleware)
         self.assertIn('in {"ник", "ники", "никнейм", "никнеймы"}', middleware)
-        self.assertIn("await command_rank_rule_cmd(event)", middleware)
+        # The outer middleware must hand the message back to aiogram;\n        # calling a decorated handler directly bypasses normal dispatch.\n        self.assertIn("return await handler(event, data)", middleware)\n        self.assertNotIn("await command_rank_rule_cmd(", middleware)
         self.assertIn('event = event.model_copy(update={"text": _normalize_natural_moderation_phrase(event.text)})', middleware)
         self.assertIn('routed_body = "/" + body if first_token.isascii() and first_token else body', middleware)
         self.assertIn('event = event.model_copy(update={"text": routed_body})', middleware)
