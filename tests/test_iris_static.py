@@ -82,6 +82,18 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn('"ник":"nick"', rank_body)
         self.assertIn('settings[f"modrank_{key}"] = required', rank_body)
 
+    def test_dot_and_bang_prefixes_dispatch_to_existing_command_handlers(self):
+        start = self.source.index("async def normalize_dot_dk_prefix")
+        end = self.source.index("# Register participant-call aliases", start)
+        middleware = self.source[start:end]
+        self.assertIn('if raw.casefold() == ".дк":', middleware)
+        self.assertIn('await command_rank_rule_cmd(event.model_copy(update={"text": "дк"}))', middleware)
+        self.assertIn('prefixed = re.match(', middleware)
+        self.assertIn('"/" + command + tail if command.isascii()', middleware)
+        self.assertIn('else command + tail', middleware)
+        self.assertIn('event = event.model_copy(update={"text": normalized_command})', middleware)
+        self.assertIn('router.message.outer_middleware(normalize_dot_dk_prefix)', self.source)
+
     def test_warning_reasons_hide_legacy_metadata_and_target_username(self):
         start = self.source.index("def _clean_warning_reason")
         end = self.source.index("def active_warn_entries", start)
