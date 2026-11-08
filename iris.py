@@ -2714,8 +2714,25 @@ async def require_real_admin(message: Message) -> bool:
         return False
     if message.from_user.id == OWNER_ID:
         return True
-    if await is_admin(bot, message.chat.id, message.from_user.id):
-        return True
+    try:
+        if await is_admin(bot, message.chat.id, message.from_user.id):
+            return True
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        # Telegram getChatMember can time out or fail transiently. Never leave
+        # privileged settings commands (including the bare .дк menu) silent.
+        log.exception(
+            "Could not verify Telegram administrator for .дк/settings command "
+            "(chat=%s, user=%s)",
+            message.chat.id,
+            message.from_user.id,
+        )
+        await message.answer(
+            "⚠️ Не удалось проверить права администратора Telegram. "
+            "Попробуй ещё раз через несколько секунд."
+        )
+        return False
     await message.answer("⛔ Назначать ранги и менять настройки могут только администраторы Telegram.")
     return False
 
