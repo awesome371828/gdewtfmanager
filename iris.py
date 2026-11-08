@@ -1834,6 +1834,9 @@ async def normalize_dot_dk_prefix(handler, event, data):
     A final rank digit is kept for .дк <command> <rank> configuration, e.g. .дк ник 4.
     Commands beginning with + or - are never mistaken for access-rule configuration.
     """
+    # Message updates without text (photos, stickers, service events) still pass
+    # through outer middleware; initialize this before the text-only branch.
+    raw = ""
     if isinstance(event, Message) and event.text:
         # aiogram Message is frozen (Pydantic); never assign to event.text.
         # Work on a shallow model copy so ordinary chat messages cannot crash middleware.
