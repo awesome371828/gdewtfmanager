@@ -85,6 +85,14 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn('"ник":"nick"', rank_body)
         self.assertIn('settings[f"modrank_{key}"] = required', rank_body)
 
+    def test_bare_dot_dk_menu_is_registered_before_broad_text_handlers(self):
+        marker = "router.message.outer_middleware(normalize_dot_dk_prefix)"
+        early_route = self.source.index("async def dispatch_dot_dk_menu_first")
+        legacy_route = self.source.index('@router.message(F.text.regexp(r"(?i)^\\.дк(?:\\s|$)"))')
+        self.assertLess(self.source.index(marker), early_route)
+        self.assertLess(early_route, legacy_route)
+        self.assertIn("await command_rank_rule_cmd(message)", self.source[early_route:legacy_route])
+
     def test_dot_and_bang_prefixes_dispatch_to_existing_command_handlers(self):
         start = self.source.index("async def normalize_dot_dk_prefix")
         end = self.source.index("# Register participant-call aliases", start)
