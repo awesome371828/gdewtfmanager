@@ -1954,6 +1954,14 @@ async def normalize_dot_dk_prefix(handler, event, data):
 # This middleware routes rank-rule syntax before any command-specific handler.
 router.message.outer_middleware(normalize_dot_dk_prefix)
 
+
+# Keep the bare .дк access menu ahead of broad text handlers. Some feature
+# routers register catch-all text filters before the legacy command definition;
+# this explicit early route guarantees that ".дк" always reaches its handler.
+@router.message(F.text.regexp(r"(?i)^\\s*\\.дк\\s*$"))
+async def dispatch_dot_dk_menu_first(message: Message) -> None:
+    await command_rank_rule_cmd(message)
+
 # Register participant-call aliases before all feature handlers. aiogram stops at
 # the first matching handler, so this must precede broad text/command handlers.
 @router.message(Command("sbor"))
