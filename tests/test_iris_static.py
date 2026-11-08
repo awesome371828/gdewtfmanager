@@ -67,7 +67,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
 
     def test_dot_dk_nickname_rank_rules_are_routed_as_permissions(self):
         start = self.source.index("async def normalize_dot_dk_prefix")
-        end = self.source.index("# Register participant-call aliases", start)
+        end = self.source.index("# CRITICAL: register the .дк router as an OUTER middleware.", start)
         middleware = self.source[start:end]
         self.assertIn("nick_rule = (", middleware)
         self.assertIn('in {"ник", "ники", "никнейм", "никнеймы"}', middleware)
@@ -95,13 +95,13 @@ class PearCMStaticRegressionTests(unittest.TestCase):
 
     def test_dot_and_bang_prefixes_dispatch_to_existing_command_handlers(self):
         start = self.source.index("async def normalize_dot_dk_prefix")
-        end = self.source.index("# Register participant-call aliases", start)
+        end = self.source.index("# CRITICAL: register the .дк router as an OUTER middleware.", start)
         middleware = self.source[start:end]
         self.assertIn('    raw = ""', middleware)
         self.assertIn('if isinstance(event, Message) and event.text:', middleware)
         self.assertIn('if not raw.casefold().startswith(".дк"):', middleware)
         self.assertIn('if raw.casefold() == ".дк":', middleware)
-        self.assertEqual(middleware.count("return await handler(event, data)"), 3)
+        self.assertEqual(middleware.count("return await handler(event, data)"), 2)
         self.assertNotIn("await command_rank_rule_cmd(", middleware)
         self.assertIn('prefixed = re.match(', middleware)
         self.assertIn('"/" + command + tail if command.isascii()', middleware)
