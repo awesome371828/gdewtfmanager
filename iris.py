@@ -1933,7 +1933,7 @@ async def normalize_dot_dk_prefix(handler, event, data):
     # handlers; Latin command names become Telegram-style /commands so existing
     # Command(...) filters continue to work. Slash commands are left untouched.
     if not raw.casefold().startswith(".дк"):
-        prefixed = re.match(r"(?is)^([.!])([a-zа-яё][\\w-]*)(.*)$", raw)
+        prefixed = re.match(r"(?is)^([.!])([a-zа-яё][\w-]*)(.*)$", raw)
         if prefixed:
             prefix, command, tail = prefixed.groups()
             normalized_command = (
