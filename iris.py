@@ -1886,7 +1886,9 @@ async def normalize_dot_dk_prefix(handler, event, data):
                             f"Твой ранг: <b>{actual} — {role_name(actual)}</b>."
                         )
                         return
-                event = event.model_copy(update={"text": body})
+                first_token = parts[0] if parts else ""
+                routed_body = "/" + body if first_token.isascii() and first_token else body
+                event = event.model_copy(update={"text": routed_body})
 
         # Enforce generic .дк rules on ordinary commands too. This is only
         # activated for explicitly configured command keys, so unrelated chat
