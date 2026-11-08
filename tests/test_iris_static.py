@@ -97,7 +97,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         start = self.source.index("def _normalize_natural_moderation_phrase")
         end = self.source.index("_RANK_CHECKED_TEXT_COMMANDS", start)
         normalizer = self.source[start:end]
-        guard = 'if re.match(r"(?i)^\\\\.дк(?:\\\\s|$)", value):'
+        guard = 'if re.match(r"(?i)^\\.дк(?:\\s|$)", value):'
         self.assertIn(guard, normalizer)
         self.assertIn("return value", normalizer[normalizer.index(guard):])
         self.assertIn("Preserve it byte-for-byte", normalizer)
