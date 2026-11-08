@@ -71,11 +71,12 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         middleware = self.source[start:end]
         self.assertIn("nick_rule = (", middleware)
         self.assertIn('in {"ник", "ники", "никнейм", "никнеймы"}', middleware)
-        # The outer middleware must hand the message back to aiogram;\n        # calling a decorated handler directly bypasses normal dispatch.\n        self.assertIn("return await handler(event, data)", middleware)\n        self.assertNotIn("await command_rank_rule_cmd(", middleware)
+        self.assertIn("return await handler(event, data)", middleware)
+        self.assertNotIn("await command_rank_rule_cmd(", middleware)
         self.assertIn('event = event.model_copy(update={"text": _normalize_natural_moderation_phrase(event.text)})', middleware)
         self.assertIn('routed_body = "/" + body if first_token.isascii() and first_token else body', middleware)
         self.assertIn('event = event.model_copy(update={"text": routed_body})', middleware)
-        self.assertIn('if not is_rule:', middleware)
+        self.assertIn("if not is_rule:", middleware)
         self.assertNotIn("event.text =", middleware)
         self.assertIn("router.message.outer_middleware(normalize_dot_dk_prefix)", self.source)
         rank_start = self.source.index("async def command_rank_rule_cmd")
@@ -88,7 +89,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         start = self.source.index("async def normalize_dot_dk_prefix")
         end = self.source.index("# Register participant-call aliases", start)
         middleware = self.source[start:end]
-        self.assertIn('    raw = ""\n    if isinstance(event, Message) and event.text:', middleware)
+        self.assertIn('    raw = ""\\n    if isinstance(event, Message) and event.text:', middleware)
         self.assertIn('if not raw.casefold().startswith(".дк"):', middleware)
         self.assertIn('if raw.casefold() == ".дк":', middleware)
         self.assertEqual(middleware.count("return await handler(event, data)"), 2)
