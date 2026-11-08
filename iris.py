@@ -794,7 +794,7 @@ async def _gdewtf_safe_answer(message: Message, *args: Any, **kwargs: Any) -> bo
 # The GDE.WTF router is mounted before the general command router.
 # Register the bare .дк menu here as well, so it cannot be shadowed by
 # handlers registered on the later router.
-@gdewtf_router.message(F.text.regexp(r"(?i)^\\s*\\.дк\\s*$"))
+@gdewtf_router.message(F.text.regexp(r"(?i)^\s*\.дк\s*$"))
 async def dispatch_dot_dk_menu_before_gdewtf(message: Message) -> None:
     await command_rank_rule_cmd(message)
 
