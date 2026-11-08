@@ -1958,7 +1958,7 @@ router.message.outer_middleware(normalize_dot_dk_prefix)
 # Keep the bare .дк access menu ahead of broad text handlers. Some feature
 # routers register catch-all text filters before the legacy command definition;
 # this explicit early route guarantees that ".дк" always reaches its handler.
-@router.message(F.text.regexp(r"(?i)^\\s*\\.дк\\s*$"))
+@router.message(F.text.regexp(r"(?i)^\s*\.дк\s*$"))
 async def dispatch_dot_dk_menu_first(message: Message) -> None:
     await command_rank_rule_cmd(message)
 
