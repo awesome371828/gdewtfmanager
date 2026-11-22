@@ -560,7 +560,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         start = self.source.index("async def _gdewtf_authorize(")
         end = self.source.index("@gdewtf_router.message", start)
         auth = self.source[start:end]
-        self.assertIn('timeout = aiohttp.ClientTimeout(total=4.0, connect=1.5, sock_read=3.0)', auth)
+        self.assertIn('timeout = aiohttp.ClientTimeout(total=0.9, connect=0.4, sock_read=0.6)', auth)
         self.assertIn('error in {"api_unavailable", "unauthorized", "invalid_api_response"}', auth)
         self.assertIn('if mod is None and transport_failure is None and username:', auth)
         self.assertIn('cached = _GDEWTF_ACCESS_CACHE.get(user_id)', auth)
@@ -639,7 +639,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         end = self.source.index("\n        is_warn_index =", start)
         resolver = self.source[start:end]
         self.assertIn('action not in {"бан", "ban", "разбан", "unban", "анбан"}', resolver)
-        self.assertIn('total=4.0, connect=0.8, sock_read=3.0', self.source)
+        self.assertIn('total=8.0, connect=2.0, sock_read=6.0', self.source)
         self.assertIn('"POST", "/ban", body={"q": rest[0], "ban": False}', self.source)
 
     def test_gdewtf_circuit_breaker_does_not_extend_open_state_on_late_failures(self):
@@ -767,7 +767,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn("dp.update.outer_middleware", self.source)
         reliability = (ROOT / "gdewtf_reliability.py").read_text(encoding="utf-8")
         self.assertIn("bot_telegram_updates", reliability)
-        self.assertIn('"status": "uncertain"', reliability)
+        self.assertIn('self._finish, int(update_id), "uncertain"', reliability)
         self.assertIn("Skipping duplicate or previously interrupted", reliability)
 
     def test_operation_journal_never_claims_remote_idempotency(self):
