@@ -526,10 +526,10 @@ def _gdewtf_panel_keyboard() -> InlineKeyboardMarkup:
 _GDEWTF_ACCESS_CACHE: dict[int, tuple[float, dict[str, Any]]] = {}
 # A verified profile is reused briefly to avoid making every command depend on
 # the external API. Revocations still take effect within this short window.
-_GDEWTF_ACCESS_CACHE_TTL = 10.0
+_GDEWTF_ACCESS_CACHE_TTL = 30.0
 _GDEWTF_AUTH_LOCKS: dict[int, asyncio.Lock] = {}
 _GDEWTF_AUTH_FAILURE_CACHE: dict[int, tuple[float, str]] = {}
-_GDEWTF_AUTH_FAILURE_TTL = 8.0
+_GDEWTF_AUTH_FAILURE_TTL = 30.0
 _GDEWTF_KNOWN_PERMS = {
     "events", "marks", "users", "beta", "pvo", "maint", "stats", "support", "notice"
 }
@@ -758,7 +758,7 @@ async def _gdewtf_authorize_locked(user_id: int, action: str, username: str | No
 
     # Authorization must fail quickly when the external service is unhealthy;
     # the circuit breaker prevents every command from paying this timeout.
-    timeout = aiohttp.ClientTimeout(total=0.9, connect=0.4, sock_read=0.6)
+    timeout = aiohttp.ClientTimeout(total=0.65, connect=0.3, sock_read=0.45)
 
     async def lookup(query: str) -> dict[str, Any]:
         # Reuse the short positive GET cache. Evicting /mod before every lookup
@@ -885,7 +885,7 @@ async def _gdewtf_safe_answer(message: Message, *args: Any, **kwargs: Any) -> bo
     # from the profile/help builders are left untouched.
     if args and isinstance(args[0], str) and not args[0].startswith("✦ <b>"):
         args = (format_panel("ОТВЕТ GDE.WTF", args[0], "GDE.WTF · внешний API"), *args[1:])
-    kwargs["request_timeout"] = 4.0
+    kwargs["request_timeout"] = 1.5
     send_started = time.monotonic()
     try:
         await message.answer(*args, **kwargs)
@@ -1819,7 +1819,7 @@ else:
 # Bound ordinary Telegram API calls so a stalled send cannot block a command
 # for 6–7 seconds. Keep polling's transport timeout longer than Telegram's
 # 25-second long-poll wait; otherwise the session default can abort every poll.
-_TELEGRAM_API_TIMEOUT = 4
+_TELEGRAM_API_TIMEOUT = 2.5
 _TELEGRAM_POLLING_REQUEST_TIMEOUT = 35
 
 class LowLatencyBot(Bot):
