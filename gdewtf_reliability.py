@@ -17,6 +17,29 @@ from aiogram.types import Update
 log = logging.getLogger("gdewtf.reliability")
 
 
+
+def ensure_reliability_schema(database: Any) -> None:
+    """Apply the small additive reliability migration before polling starts."""
+    statements = (
+        """CREATE TABLE IF NOT EXISTS public.bot_telegram_updates (
+            update_id bigint PRIMARY KEY,
+            status text NOT NULL DEFAULT 'processing'
+                CHECK (status IN ('processing', 'done', 'uncertain')),
+            last_error text,
+            created_at timestamptz NOT NULL DEFAULT now(),
+            updated_at timestamptz NOT NULL DEFAULT now()
+        )""",
+        """CREATE INDEX IF NOT EXISTS bot_telegram_updates_status_updated_idx
+            ON public.bot_telegram_updates (status, updated_at)""",
+        """DELETE FROM public.bot_telegram_updates
+            WHERE status = 'done' AND updated_at < now() - interval '30 days'""",
+    )
+    with database.connect() as connection:
+        with connection.cursor() as cursor:
+            for statement in statements:
+                cursor.execute(statement)
+
+
 class PersistentUpdateDeduplicationMiddleware(BaseMiddleware):
     """Persist Telegram update IDs before dispatch; acknowledge only completed IDs."""
     def __init__(self, database: Any, *, stale_after_seconds: int = 900) -> None:
