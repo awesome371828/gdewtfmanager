@@ -4522,7 +4522,11 @@ async def purge_cmd(message: Message) -> None:
     except Exception:
         pass
     audit(message.chat.id, message.from_user.id, "purge", details=f"deleted={deleted}")
-    await message.answer(f"🧹 Удалено сообщений: <b>{deleted}</b>.")
+    await message.answer(format_panel(
+        "ОЧИСТКА СООБЩЕНИЙ",
+        f"🧹 Удалено: <b>{deleted}</b> сообщ.",
+        "Модерация · очистка завершена",
+    ))
 
 @router.message(Command("pin"))
 @router.message(F.text == ".пин")
@@ -4535,7 +4539,11 @@ async def pin_cmd(message: Message) -> None:
         return
     try:
         await target_message.pin()
-        await message.answer("📌 Сообщение закреплено.")
+        await message.answer(format_panel(
+            "СООБЩЕНИЕ ЗАКРЕПЛЕНО",
+            "📌 Выбранное сообщение закреплено в чате.",
+            "Управление чатом · действие выполнено",
+        ))
         audit(message.chat.id, message.from_user.id, "pin", target_message.from_user.id if target_message.from_user else None)
     except Exception as exc:
         await safe_error(message, exc)
@@ -4550,7 +4558,11 @@ async def unpin_cmd(message: Message) -> None:
             await message.reply_to_message.unpin()
         else:
             await bot.unpin_chat_message(message.chat.id)
-        await message.answer("📌 Закрепление снято.")
+        await message.answer(format_panel(
+            "ЗАКРЕПЛЕНИЕ СНЯТО",
+            "📌 Закреплённое сообщение откреплено.",
+            "Управление чатом · действие выполнено",
+        ))
         audit(message.chat.id, message.from_user.id, "unpin")
     except Exception as exc:
         await safe_error(message, exc)
@@ -5577,7 +5589,11 @@ async def rank_cmd(message: Message) -> None:
         if not message.from_user:
             return
         current_rank = await asyncio.to_thread(user_rank, message.chat.id, message.from_user.id)
-        await message.answer(f"🏅 Ваш ранг: <b>{current_rank}</b> — <b>{role_name(current_rank)}</b>.")
+        await message.answer(format_panel(
+            "ВАШ РАНГ",
+            f"🏅 <b>{current_rank} · {role_name(current_rank)}</b>",
+            "Профиль участника",
+        ))
         return
     if not await require_real_admin(message):
         return
@@ -5634,7 +5650,12 @@ async def rank_cmd(message: Message) -> None:
         return
     invalidate_user_rank(message.chat.id, target[0])
     audit(message.chat.id, message.from_user.id, "set_rank", target[0], f"rank={rank}")
-    await message.answer(f"🏅 Ранг {mention(target[0], target[1])} установлен: <b>{rank} — {role_name(rank)}</b>.")
+    await message.answer(format_panel(
+        "РАНГ ОБНОВЛЁН",
+        f"👤 Участник: {mention(target[0], target[1])}\n"
+        f"Новая роль: <b>{rank} · {role_name(rank)}</b>.",
+        "Управление составом · изменение сохранено",
+    ))
 
 
 @router.message(F.text.regexp(r"(?i)^[.!/]?(?:повысить(?:\s*[- ]?\s*ранг)?|повышени(?:е|я|ю|ем|и)|повышай|повышайся|продвинуть|поднять(?:\s+ранг)?|назначить\s+(?:ранг|чин)|присвоить\s+ранг|promote)(?:\s|$)"))
@@ -5705,7 +5726,13 @@ async def promote_rank_cmd(message: Message) -> None:
         return
     invalidate_user_rank(message.chat.id, target[0])
     audit(message.chat.id, message.from_user.id if message.from_user else 0, "promote", target[0], f"rank={current}->{new_rank}")
-    await message.answer(f"⬆️ <b>{escape(target[1])}</b> был повышен до роли <b>{role_name(new_rank)}</b>.")
+    await message.answer(format_panel(
+        "ПОВЫШЕНИЕ РАНГА",
+        f"⬆️ Участник: {mention(target[0], target[1])}\n"
+        f"Новая роль: <b>{role_name(new_rank)}</b>\n"
+        f"Изменение: <code>{current} → {new_rank}</code>.",
+        "Управление составом · изменение сохранено",
+    ))
 
 
 @router.message(F.text.regexp(r"(?i)^[.!/]?(?:понизить\s+в\s+должности|снять\s+(?:ранг|чин|админ(?:а|у|ом|е)?|администратор(?:а|у|ом|е)?|модератор(?:а|у|ом|е)?)|убрать\s+(?:ранг|чин)|лишить\s+ранга|понизить(?:\s*[- ]?\s*ранг)?|понижени(?:е|я|ю|ем|и)|понижай|понизь|разжаловать|demote)(?:\s|$)"))
@@ -5776,7 +5803,13 @@ async def demote_rank_cmd(message: Message) -> None:
         return
     invalidate_user_rank(message.chat.id, target[0])
     audit(message.chat.id, message.from_user.id if message.from_user else 0, "demote", target[0], f"rank={current}->{new_rank}")
-    await message.answer(f"⬇️ <b>{escape(target[1])}</b> был понижен до роли <b>{role_name(new_rank)}</b>.")
+    await message.answer(format_panel(
+        "ПОНИЖЕНИЕ РАНГА",
+        f"⬇️ Участник: {mention(target[0], target[1])}\n"
+        f"Новая роль: <b>{role_name(new_rank)}</b>\n"
+        f"Изменение: <code>{current} → {new_rank}</code>.",
+        "Управление составом · изменение сохранено",
+    ))
 
 
 @router.message(F.text.regexp(r"(?i)^\.дк(?:\s|$)"))
