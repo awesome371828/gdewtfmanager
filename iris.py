@@ -1824,7 +1824,16 @@ class LowLatencyBot(Bot):
             else:
                 request_timeout = _TELEGRAM_API_TIMEOUT
         if not isinstance(method, GetUpdates):
-            return await super().__call__(method, request_timeout=request_timeout)
+            started = time.monotonic()
+            try:
+                return await super().__call__(method, request_timeout=request_timeout)
+            finally:
+                elapsed = time.monotonic() - started
+                if elapsed >= 0.75:
+                    log.warning(
+                        "Telegram Bot API slow call (%s, duration_ms=%.0f)",
+                        type(method).__name__, elapsed * 1000,
+                    )
 
         # Honour Telegram's GetUpdates flood-control delay at the transport
         # boundary; do not let the dispatcher issue another poll too early.
@@ -1854,6 +1863,26 @@ bot = LowLatencyBot(
 )
 dp = Dispatcher()
 router = Router()
+
+
+class UpdateLatencyMiddleware(BaseMiddleware):
+    """Measure end-to-end update handling without adding network round trips."""
+    async def __call__(self, handler, event, data):
+        started = time.monotonic()
+        try:
+            return await handler(event, data)
+        finally:
+            elapsed = time.monotonic() - started
+            if elapsed >= 0.75:
+                update = event
+                update_id = getattr(update, "update_id", None)
+                log.warning(
+                    "Slow Telegram update (update_id=%s, duration_ms=%.0f)",
+                    update_id, elapsed * 1000,
+                )
+
+
+dp.update.outer_middleware(UpdateLatencyMiddleware())
 dp.include_router(gdewtf_router)
 dp.include_router(router)
 
