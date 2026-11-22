@@ -597,7 +597,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         helper = self.source[helper_start:helper_end]
         self.assertIn("_GDEWTF_CONTROLLER_CODES", helper)
         self.assertIn("if values & _GDEWTF_CONTROLLER_CODES:", helper)
-        self.assertIn("telegram_id in _GDEWTF_CONTROLLER_TELEGRAM_IDS", helper)
+        self.assertIn("str(telegram_id) in _GDEWTF_CONTROLLER_TELEGRAM_IDS", helper)
         self.assertIn("_GDEWTF_CONTROLLER_TELEGRAM_IDS", helper)
         auth_start = self.source.index("async def _gdewtf_authorize(")
         auth_end = self.source.index("async def _gdewtf_safe_answer", auth_start)
@@ -623,7 +623,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
 
     def test_banned_designated_controller_keeps_full_api_management_access(self):
         start = self.source.index("async def _gdewtf_authorize_locked(")
-        end = self.source.index("\n\ndef _gdewtf_safe_answer", start)
+        end = self.source.index("\n\nasync def _gdewtf_safe_answer", start)
         auth = self.source[start:end]
         self.assertIn("is_designated_controller = _gdewtf_is_designated_controller(mod, user_id)", auth)
         self.assertIn(
@@ -636,7 +636,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
 
     def test_gdewtf_ban_and_unban_skip_target_prelookup_and_use_recovery_timeout(self):
         start = self.source.index("# Ban/unban endpoints resolve the supplied identifier themselves.")
-        end = self.source.index("resolved_target_profile:", start)
+        end = self.source.index("resolved_target_profile: dict[str, Any] | None = None", start)
         resolver = self.source[start:end]
         self.assertIn('action not in {"бан", "ban", "разбан", "unban", "анбан"}', resolver)
         self.assertIn('total=4.0, connect=0.8, sock_read=3.0', self.source)
