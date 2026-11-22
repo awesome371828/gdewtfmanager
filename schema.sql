@@ -1128,3 +1128,18 @@ create index if not exists bot_gdewtf_sync_outbox_pending_idx
     where status in ('pending', 'retry');
 
 
+
+-- Durable Telegram update idempotency. An interrupted update is marked uncertain
+-- and is not replayed automatically because it may already have changed remote state.
+create table if not exists public.bot_telegram_updates (
+    update_id bigint primary key,
+    status text not null default 'processing'
+        check (status in ('processing', 'done', 'uncertain')),
+    last_error text,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+);
+create index if not exists bot_telegram_updates_status_updated_idx
+    on public.bot_telegram_updates (status, updated_at);
+
+-- Keep the update journal bounded without touching active/in-flight rows.
