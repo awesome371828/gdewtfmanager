@@ -665,7 +665,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         )
         api_node = next(
             node for node in self.tree.body
-            if isinstance(node, ast.AsyncFunctionDef) and node.name == "_api"
+            if isinstance(node, ast.AsyncFunctionDef) and node.name in {"_api", "_api_request"}
         )
         source_lines = self.source.splitlines()
         stale_helper = "\n".join(source_lines[stale_node.lineno - 1:api_node.lineno - 1])
