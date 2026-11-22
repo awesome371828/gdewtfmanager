@@ -928,11 +928,15 @@ async def gdewtf_command(message: Message) -> None:
     if not message.from_user:
         return
     text = (message.text or "").strip()
-    # Reject incomplete target-required commands locally. They cannot perform
-    # an API operation, so do not spend a network round-trip checking permissions.
-    has_reply_target = bool(
-        message.reply_to_message and message.reply_to_message.from_user
+    # A reply to the command author's own message is not a moderation target.
+    # In particular, replying to "!варн" itself must not trigger an API lookup.
+    reply_user = (
+        message.reply_to_message.from_user
+        if message.reply_to_message and message.reply_to_message.from_user
+        else None
     )
+    has_reply_target = bool(reply_user and reply_user.id != message.from_user.id)
+    # Reject incomplete target-required commands locally, before authorization.
     if re.fullmatch(r"!\s*(?:варн|warn|бан|ban)\s*", text, re.IGNORECASE) and not has_reply_target:
         await _gdewtf_safe_answer(
             message,
@@ -982,8 +986,8 @@ async def gdewtf_command(message: Message) -> None:
     # A reply is an unambiguous target: use the sender's Telegram ID and let
     # GDE.WTF resolve it through the project's existing Telegram account link.
     replied_user = (
-        message.reply_to_message.from_user
-        if message.reply_to_message and message.reply_to_message.from_user
+        reply_user
+        if reply_user and reply_user.id != message.from_user.id
         else None
     )
     target_actions = {
