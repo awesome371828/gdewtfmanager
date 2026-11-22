@@ -977,7 +977,10 @@ async def gdewtf_command(message: Message) -> None:
         "бан", "ban", "разбан", "unban", "анбан",
     }
     resolved_target_profile: dict[str, Any] | None = None
-    if action in target_actions_for_resolution and rest:
+    # Ban/unban endpoints resolve the supplied identifier themselves. Do not
+    # preflight GET /mod or /mods here: a blocked target may be hidden from
+    # directory reads, and that extra read can time out before the recovery POST.
+    if action in target_actions_for_resolution and rest and action not in {"бан", "ban", "разбан", "unban", "анбан"}:
         is_warn_index = action in {"снятьварн", "снять-варн", "анварн", "unwarn"} and rest[0].isdigit() and len(rest[0]) < 7
         raw_target = rest[0]
         if not is_warn_index:
@@ -1582,12 +1585,20 @@ async def gdewtf_command(message: Message) -> None:
             body = {"q": rest[0], "ban": True}
             if len(rest) > 1:
                 body["reason"] = " ".join(rest[1:])
-            data = await _api("POST", "/ban", body=body)
+            data = await _api(
+                "POST", "/ban", body=body,
+                request_timeout=aiohttp.ClientTimeout(total=4.0, connect=0.8, sock_read=3.0),
+            )
         elif action in {"разбан", "unban", "анбан"}:
             if not rest:
                 await _gdewtf_safe_answer(message, "Формат: <code>!разбан @username</code>")
                 return
-            data = await _api("POST", "/ban", body={"q": rest[0], "ban": False})
+            # Send the original @username/RND-code straight to the API so the
+            # server can unban even when the target is absent from /mods.
+            data = await _api(
+                "POST", "/ban", body={"q": rest[0], "ban": False},
+                request_timeout=aiohttp.ClientTimeout(total=4.0, connect=0.8, sock_read=3.0),
+            )
         else:
             await _gdewtf_safe_answer(message, _help())
             return
