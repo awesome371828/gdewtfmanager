@@ -515,6 +515,8 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn("isinstance(method, GetUpdates)", body)
         self.assertIn("request_timeout = _TELEGRAM_POLLING_REQUEST_TIMEOUT", body)
         self.assertIn("request_timeout = _TELEGRAM_API_TIMEOUT", body)
+        self.assertIn("except TelegramRetryAfter as exc", body)
+        self.assertIn("respecting retry_after", body)
 
     def test_gdewtf_reply_timeout_is_not_retried_to_avoid_duplicate_messages(self):
         start = self.source.index("async def _gdewtf_safe_answer")
@@ -537,7 +539,11 @@ class PearCMStaticRegressionTests(unittest.TestCase):
 
     def test_gdewtf_api_timeouts_are_bounded_and_warning_reads_are_reused(self):
         self.assertIn("request_timeout: aiohttp.ClientTimeout | None = None", self.source)
-        self.assertIn("timeout=request_timeout or _TIMEOUT", self.source)
+        self.assertIn("timeout=effective_timeout", self.source)
+        self.assertIn("_WRITE_TIMEOUT = aiohttp.ClientTimeout(total=6.0", self.source)
+        self.assertIn("async def _gdewtf_api_guarded(", self.source)
+        self.assertIn("GDE.WTF circuit breaker opened", self.source)
+        self.assertIn("asyncio.shield(task)", self.source)
         self.assertIn('success = data.get("success")', self.source)
         self.assertIn("if isinstance(nested, dict):", self.source)
         self.assertIn("elif isinstance(nested, list):", self.source)
@@ -546,13 +552,16 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn("не возвращает общее число всех участников", self.source)
         self.assertNotIn('for endpoint in ("/stats", "/people", "/users")', self.source)
         self.assertIn("before_mod = resolved_target_profile if isinstance(resolved_target_profile, dict) else {}", self.source)
-        self.assertIn("request_timeout=aiohttp.ClientTimeout(total=3, connect=1.5, sock_read=2)", self.source)
+        self.assertIn("request_timeout=aiohttp.ClientTimeout(total=2.0, connect=0.8, sock_read=1.5)", self.source)
+        self.assertIn('"mutation_status_unknown"', self.source)
+        self.assertIn("Never automatically replay a write", self.source)
 
     def test_gdewtf_panel_edits_existing_message_and_uses_api_membership(self):
         start = self.source.index("async def _gdewtf_authorize(")
         end = self.source.index("@gdewtf_router.message", start)
         auth = self.source[start:end]
-        self.assertIn('timeout = aiohttp.ClientTimeout(total=1.4, connect=0.6, sock_read=1.0)', auth)
+        self.assertIn('timeout = aiohttp.ClientTimeout(total=3.2, connect=1.0, sock_read=2.4)', auth)
+        self.assertIn('_GDEWTF_ACCESS_CACHE_TTL = 10.0', self.source)
         self.assertIn('cached = _GDEWTF_ACCESS_CACHE.get(user_id)', auth)
         self.assertIn('query = str(user_id)', auth)
         self.assertIn('if mod is None and transport_failure is None and username:', auth)
@@ -642,7 +651,8 @@ class PearCMStaticRegressionTests(unittest.TestCase):
 
 
     def test_gdewtf_reads_fail_fast_and_safe_lists_can_use_short_stale_cache(self):
-        self.assertIn("ClientTimeout(total=1.8, connect=0.7, sock_read=1.2)", self.source)
+        self.assertIn("ClientTimeout(total=3.5, connect=1.0, sock_read=2.5)", self.source)
+        self.assertIn("_WRITE_TIMEOUT = aiohttp.ClientTimeout(total=6.0", self.source)
         self.assertIn("def _gdewtf_stale_read(", self.source)
         self.assertIn('path not in {"/mods", "/cities"}', self.source)
         self.assertIn('max_age = 30.0 if path == "/mods" else 300.0', self.source)
