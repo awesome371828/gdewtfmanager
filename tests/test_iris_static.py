@@ -512,7 +512,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertNotIn("family=socket.AF_INET6", self.source)
         self.assertEqual(self.source.count("AiohttpSession(timeout=12, limit=500)"), 2)
 
-    def test_ordinary_telegram_requests_have_a_bounded_three_second_timeout(self):
+    def test_ordinary_telegram_requests_have_a_bounded_four_second_timeout(self):
         # Keep ordinary sends bounded while allowing the 25-second GetUpdates
         # long poll to finish without a premature transport timeout.
         self.assertIn("_TELEGRAM_API_TIMEOUT = 4", self.source)
