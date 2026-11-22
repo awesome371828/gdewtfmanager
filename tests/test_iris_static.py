@@ -748,5 +748,18 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn("Telegram reply delivery slow", answer)
         self.assertIn("not retrying", answer)
 
+
+    def test_all_telegram_updates_and_bot_api_calls_have_latency_diagnostics(self):
+        middleware_start = self.source.index("class UpdateLatencyMiddleware")
+        middleware_end = self.source.index("dp.include_router(gdewtf_router)", middleware_start)
+        middleware = self.source[middleware_start:middleware_end]
+        self.assertIn("dp.update.outer_middleware(UpdateLatencyMiddleware())", middleware)
+        self.assertIn("Slow Telegram update", middleware)
+        bot_start = self.source.index("class LowLatencyBot")
+        bot_end = self.source.index("# Long polling needs an HTTP timeout", bot_start)
+        bot = self.source[bot_start:bot_end]
+        self.assertIn("Telegram Bot API slow call", bot)
+        self.assertIn("request_timeout=request_timeout", bot)
+
 if __name__ == "__main__":
     unittest.main()
