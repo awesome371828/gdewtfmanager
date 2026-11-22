@@ -734,7 +734,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         auth = self.source[auth_start:auth_end]
         self.assertNotIn('_GDEWTF_API_CACHE.pop(_gdewtf_cache_key("/mods", {}), None)', auth)
         self.assertIn('_GDEWTF_API_CACHE_TTL = {"/mods": 4.0', self.source)
-        self.assertIn("The short-lived /mods snapshot", auth)
+        self.assertIn("Keep the short-lived /mods snapshot", auth)
 
     def test_external_api_latency_is_logged_without_retrying_ambiguous_writes(self):
         api_start = self.source.index("async def _api(")
