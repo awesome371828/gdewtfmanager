@@ -761,5 +761,26 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn("Telegram Bot API slow call", bot)
         self.assertIn("request_timeout=request_timeout", bot)
 
+
+    def test_persistent_telegram_update_deduplication_is_registered(self):
+        self.assertIn("PersistentUpdateDeduplicationMiddleware(db)", self.source)
+        self.assertIn("dp.update.outer_middleware", self.source)
+        reliability = (ROOT / "gdewtf_reliability.py").read_text(encoding="utf-8")
+        self.assertIn("bot_telegram_updates", reliability)
+        self.assertIn('"status": "uncertain"', reliability)
+        self.assertIn("Skipping duplicate or previously interrupted", reliability)
+
+    def test_operation_journal_never_claims_remote_idempotency(self):
+        reliability = (ROOT / "gdewtf_reliability.py").read_text(encoding="utf-8")
+        self.assertIn("does not document an idempotency-key contract", reliability)
+        self.assertIn("def enqueue_operation", reliability)
+        self.assertIn("def mark_operation_uncertain", reliability)
+
+    def test_latency_profiler_reports_percentiles(self):
+        reliability = (ROOT / "gdewtf_reliability.py").read_text(encoding="utf-8")
+        self.assertIn('"p50_ms"', reliability)
+        self.assertIn('"p95_ms"', reliability)
+        self.assertIn('"max_ms"', reliability)
+
 if __name__ == "__main__":
     unittest.main()
