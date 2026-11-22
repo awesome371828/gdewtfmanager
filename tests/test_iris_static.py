@@ -498,6 +498,14 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn('verified_after_timeout', body)
         self.assertIn('await _gdewtf_safe_answer(message,', body)
 
+    def test_gdewtf_api_commands_require_bang_prefix(self):
+        start = self.source.index("@gdewtf_router.message(F.text.startswith(\"!\"))", self.source.index("async def gdewtf_command") - 200)
+        end = self.source.index("async def gdewtf_command", start)
+        decorators = self.source[start:end]
+        self.assertEqual(decorators.count("@gdewtf_router.message"), 1)
+        self.assertIn("F.text.startswith(\"!\")", decorators)
+        self.assertNotIn("F.text.regexp", decorators)
+
     def test_aiogram_session_does_not_pass_unsupported_connector_options(self):
         # AiohttpSession forwards kwargs to aiogram BaseSession; `family` is an
         # aiohttp TCPConnector option, not a supported AiohttpSession argument.
