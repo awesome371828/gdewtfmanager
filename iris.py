@@ -129,7 +129,7 @@ _SHUTDOWN_EVENT: asyncio.Event | None = None
 # Short TTL cache for idempotent reads: prevents bursts of identical API
 # requests from piling up behind network latency. Mutation responses invalidate it.
 _GDEWTF_API_CACHE: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
-_GDEWTF_API_CACHE_TTL = {"/mods": 4.0, "/cities": 30.0, "/ping": 2.0, "/mod": 2.0}
+_GDEWTF_API_CACHE_TTL = {"/mods": 4.0, "/cities": 30.0, "/ping": 2.0, "/mod": 10.0}
 _GDEWTF_API_CACHE_LOCK = asyncio.Lock()
 
 
@@ -529,7 +529,7 @@ _GDEWTF_ACCESS_CACHE: dict[int, tuple[float, dict[str, Any]]] = {}
 _GDEWTF_ACCESS_CACHE_TTL = 10.0
 _GDEWTF_AUTH_LOCKS: dict[int, asyncio.Lock] = {}
 _GDEWTF_AUTH_FAILURE_CACHE: dict[int, tuple[float, str]] = {}
-_GDEWTF_AUTH_FAILURE_TTL = 2.5
+_GDEWTF_AUTH_FAILURE_TTL = 8.0
 _GDEWTF_KNOWN_PERMS = {
     "events", "marks", "users", "beta", "pvo", "maint", "stats", "support", "notice"
 }
@@ -761,7 +761,10 @@ async def _gdewtf_authorize_locked(user_id: int, action: str, username: str | No
     timeout = aiohttp.ClientTimeout(total=0.9, connect=0.4, sock_read=0.6)
 
     async def lookup(query: str) -> dict[str, Any]:
-        _GDEWTF_API_CACHE.pop(_gdewtf_cache_key("/mod", {"q": query}), None)
+        # Reuse the short positive GET cache. Evicting /mod before every lookup
+        # defeated the cache and made each command wait on the upstream API.
+        # Successful writes invalidate this snapshot; authorization still
+        # verifies the Telegram identity and re-evaluates controller rights.
         return await _api("GET", "/mod", params={"q": query}, request_timeout=timeout)
 
     # Query the stable Telegram ID first. Try username only after a definitive
