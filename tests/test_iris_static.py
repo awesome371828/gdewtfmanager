@@ -707,7 +707,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
 
 
     def test_gdewtf_reads_fail_fast_and_safe_lists_can_use_short_stale_cache(self):
-        self.assertIn("ClientTimeout(total=8.0, connect=2.0, sock_read=6.0)", self.source)
+        self.assertIn("_TIMEOUT = aiohttp.ClientTimeout(total=4.0, connect=1.0, sock_read=3.0)", self.source)
         self.assertIn("def _gdewtf_stale_read(", self.source)
         self.assertIn('path not in {"/mods", "/cities"}', self.source)
         self.assertIn('max_age = 30.0 if path == "/mods" else 300.0', self.source)
