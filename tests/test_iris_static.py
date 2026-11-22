@@ -422,7 +422,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         member_end = self.source.index("async def is_current_chat_member", member_start)
         member_body = self.source[member_start:member_end]
         self.assertIn("Telegram getChatMember failed fast; refusing unverified member check", member_body)
-        self.assertIn("_CHAT_MEMBER_CACHE[key] = (None, now)", member_body)
+        self.assertIn("_CHAT_MEMBER_CACHE[key] = (None, time.monotonic())", member_body)
 
     def test_removed_marriage_feature_is_not_advertised_as_working(self):
         # Marriage/relationship roleplay was intentionally removed. The retained
