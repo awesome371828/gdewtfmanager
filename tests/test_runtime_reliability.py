@@ -1,3 +1,4 @@
+import ast
 import pathlib
 import unittest
 
@@ -65,8 +66,22 @@ class RuntimeReliabilityRegressionTests(unittest.TestCase):
         start = SOURCE.index("target_actions_for_resolution = {")
         end = SOURCE.index("# Normalize target commands", start) if "# Normalize target commands" in SOURCE[start:] else start + 1200
         body = SOURCE[start:end]
-        self.assertNotIn('"варн", "warn"', body)
-        self.assertNotIn('"бан", "ban"', body)
+        tree = ast.parse(SOURCE)
+        resolver_assignment = next(
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "target_actions_for_resolution"
+                for target in node.targets
+            )
+        )
+        configured_actions = {
+            item.value for item in resolver_assignment.value.elts
+            if isinstance(item, ast.Constant) and isinstance(item.value, str)
+        }
+        self.assertTrue(configured_actions.isdisjoint({"варн", "warn", "бан", "ban"}))
+        self.assertIn("action in target_actions_for_resolution", body)
+        self.assertIn("Mutation endpoints resolve the supplied identifier themselves.", body)
 
     def test_mod_remove_timeout_does_not_chain_a_slow_verification_request(self):
         start = SOURCE.index('elif action in {"снять", "modremove"}:')
