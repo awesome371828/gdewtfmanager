@@ -3144,7 +3144,11 @@ async def safe_error(message: Message, exc: Exception) -> None:
             if now - stamp > _ERROR_NOTICE_TTL * 4:
                 _ERROR_NOTICE_LAST.pop(key, None)
     try:
-        await message.answer(user_text)
+        await message.answer(format_panel(
+            "ДЕЙСТВИЕ НЕ ВЫПОЛНЕНО",
+            user_text,
+            "GDE.WTF · проверка прав и состояния Telegram",
+        ))
     except Exception:
         log.exception("Could not send moderation error response")
 
