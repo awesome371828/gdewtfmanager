@@ -101,7 +101,10 @@ class SecurityAndPerformanceRegressions(unittest.TestCase):
         self.assertIn("BOT_TOKEN,", SOURCE)
         self.assertIn("default=DefaultBotProperties(", SOURCE)
         self.assertNotIn("async def main() -> None:\n    acquire_single_instance_lock()", SOURCE)
-        self.assertIn("acquire_single_instance_lock()\n    failures = 0", SOURCE)
+        self.assertIn("acquire_single_instance_lock()", SOURCE)
+        self.assertIn("await asyncio.to_thread(acquire_database_polling_lock)", SOURCE)
+        self.assertIn("pg_try_advisory_lock(hashtextextended(%s, 0))", SOURCE)
+        self.assertIn("_POLLING_DB_LOCK_CONNECTION", SOURCE)
 
     def test_runtime_build_runs_regression_tests_and_cleans_api_session(self):
         dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
