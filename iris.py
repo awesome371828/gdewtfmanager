@@ -817,9 +817,15 @@ async def _gdewtf_authorize_locked(user_id: int, action: str, username: str | No
             "Проверены Telegram ID, username и список модераторов. "
             "Убедись, что Telegram привязан к профилю с кодом RND-XXXX."
         )
+    # A controller must be able to reverse an accidental self-ban. Keep this
+    # narrow: inactive/banned profiles may pass only the unban action, and only
+    # when the profile is one of the explicitly designated controller codes.
+    is_designated_controller = _gdewtf_is_designated_controller(mod)
+    is_unban_action = action in {"разбан", "unban", "анбан"}
     if mod.get("banned") is True or mod.get("active") is False:
-        return False, "⛔ Аккаунт отключён или заблокирован в GDE.WTF."
-    # Cache only a positively resolved, identity-verified active profile.
+        if not (is_designated_controller and is_unban_action):
+            return False, "⛔ Аккаунт отключён или заблокирован в GDE.WTF. Для восстановления попроси второго контроллера проекта выполнить разбан."
+    # Cache only a positively resolved, identity-verified profile.
     _GDEWTF_ACCESS_CACHE[user_id] = (time.monotonic(), mod)
     # Read-only actions are available to any active moderator with a correctly
     # linked Telegram identity. Mutations and all panel buttons are controller-only.
