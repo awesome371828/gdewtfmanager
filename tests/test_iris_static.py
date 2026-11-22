@@ -639,7 +639,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         end = self.source.index("\n        is_warn_index =", start)
         resolver = self.source[start:end]
         self.assertIn('action not in {"бан", "ban", "разбан", "unban", "анбан"}', resolver)
-        self.assertIn('total=8.0, connect=2.0, sock_read=6.0', self.source)
+        self.assertIn('total=4.0, connect=0.8, sock_read=3.0', self.source)
         self.assertIn('"POST", "/ban", body={"q": rest[0], "ban": False}', self.source)
 
     def test_gdewtf_circuit_breaker_does_not_extend_open_state_on_late_failures(self):
