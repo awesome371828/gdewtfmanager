@@ -202,9 +202,18 @@ async def _gdewtf_api_guarded(
         await _gdewtf_breaker_record(result)
         return result
     try:
-        result = await _api_request(
-            method, path, params=params, body=body, request_timeout=request_timeout
-        )
+        try:
+            result = await _api_request(
+                method, path, params=params, body=body, request_timeout=request_timeout
+            )
+        except asyncio.CancelledError:
+            # Do not leave a half-open breaker permanently locked if a handler
+            # is cancelled while the probe is in flight.
+            await _gdewtf_breaker_record({"ok": False, "error": "api_unavailable"})
+            raise
+        except Exception:
+            await _gdewtf_breaker_record({"ok": False, "error": "api_unavailable"})
+            raise
     finally:
         _GDEWTF_API_SEMAPHORE.release()
     await _gdewtf_breaker_record(result)
