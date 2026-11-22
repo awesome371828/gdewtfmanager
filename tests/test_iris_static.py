@@ -736,7 +736,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn('_GDEWTF_API_CACHE_TTL = {"/mods": 4.0', self.source)
         self.assertIn('"/mod": 10.0', self.source)
         auth_start = self.source.index("async def _gdewtf_authorize_locked(")
-        auth_end = self.source.index("\n\ndef _gdewtf_is_designated_controller", auth_start)
+        auth_end = self.source.index("async def _gdewtf_safe_answer", auth_start)
         auth = self.source[auth_start:auth_end]
         self.assertNotIn('_GDEWTF_API_CACHE.pop(_gdewtf_cache_key("/mod", {"q": query}), None)', auth)
         self.assertIn("Keep the short-lived /mods snapshot", auth)
