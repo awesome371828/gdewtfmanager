@@ -647,6 +647,10 @@ def _gdewtf_profile_matches_telegram(profile: dict[str, Any], user_id: int, user
 
 # Only these exact GDE.WTF public profile codes may perform mutations or use buttons.
 _GDEWTF_CONTROLLER_CODES = frozenset({"RND-LJKD", "RND-8VWA"})
+# Stable Telegram account of the RND-8VWA controller. This identity fallback
+# is required for recovery when GDE.WTF hides/omits the public code on a
+# banned profile response. It is safe only after the Telegram identity check.
+_GDEWTF_CONTROLLER_TELEGRAM_IDS = frozenset({"6652898792"})
 # Ordinary linked moderators may use only informational commands.
 _GDEWTF_READONLY_ACTIONS = frozenset({
     "профиль", "profile", "who", "кто", "статус", "status", "права",
@@ -657,10 +661,12 @@ _GDEWTF_READONLY_ACTIONS = frozenset({
 })
 
 
-def _gdewtf_is_designated_controller(profile: dict[str, Any]) -> bool:
-    """Trust the two explicitly approved GDE.WTF public profile codes only."""
+def _gdewtf_is_designated_controller(profile: dict[str, Any], telegram_id: int | str | None = None) -> bool:
+    """Trust approved GDE.WTF codes or a separately verified controller Telegram ID."""
     values = {value.upper() for value in _gdewtf_profile_identity_values(profile)}
-    return bool(values & _GDEWTF_CONTROLLER_CODES)
+    if values & _GDEWTF_CONTROLLER_CODES:
+        return True
+    return telegram_id is not None and str(telegram_id) in _GDEWTF_CONTROLLER_TELEGRAM_IDS
 
 
 def _gdewtf_is_owner_or_chief(profile: dict[str, Any]) -> bool:
@@ -822,7 +828,10 @@ async def _gdewtf_authorize_locked(user_id: int, action: str, username: str | No
     # own GDE.WTF profile is banned/disabled; otherwise a self-ban deadlocks
     # every recovery and moderation action. Identity is still verified above,
     # and only the two explicitly approved controller codes get this bypass.
-    is_designated_controller = _gdewtf_is_designated_controller(mod)
+    # user_id has already been matched against the profile's linked Telegram
+    # identity above; use it as a recovery identity if the banned profile omits
+    # its RND public code from the API response.
+    is_designated_controller = _gdewtf_is_designated_controller(mod, user_id)
     if (mod.get("banned") is True or mod.get("active") is False) and not is_designated_controller:
         return False, "⛔ Аккаунт отключён или заблокирован в GDE.WTF. Обратись к контроллеру проекта для восстановления."
     # Cache only a positively resolved, identity-verified profile.
