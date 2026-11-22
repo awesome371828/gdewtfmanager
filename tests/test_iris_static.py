@@ -515,7 +515,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
     def test_ordinary_telegram_requests_have_a_bounded_three_second_timeout(self):
         # Keep ordinary sends bounded while allowing the 25-second GetUpdates
         # long poll to finish without a premature transport timeout.
-        self.assertIn("_TELEGRAM_API_TIMEOUT = 8", self.source)
+        self.assertIn("_TELEGRAM_API_TIMEOUT = 4", self.source)
         self.assertIn("_TELEGRAM_POLLING_REQUEST_TIMEOUT = 35", self.source)
         start = self.source.index("class LowLatencyBot")
         end = self.source.index("bot = LowLatencyBot(", start)
@@ -528,7 +528,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         start = self.source.index("async def _gdewtf_safe_answer")
         end = self.source.index("\n\n", self.source.index("return False", start))
         helper = self.source[start:end]
-        self.assertIn('kwargs["request_timeout"] = 8.0', helper)
+        self.assertIn('kwargs["request_timeout"] = 4.0', helper)
         self.assertIn("not retrying", helper)
         self.assertNotIn("for attempt in range", helper)
         self.assertEqual(helper.count("await message.answer(*args, **kwargs)"), 1)
@@ -554,7 +554,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn("не возвращает общее число всех участников", self.source)
         self.assertNotIn('for endpoint in ("/stats", "/people", "/users")', self.source)
         self.assertIn("before_mod = resolved_target_profile if isinstance(resolved_target_profile, dict) else {}", self.source)
-        self.assertIn("request_timeout=aiohttp.ClientTimeout(total=3, connect=1.5, sock_read=2)", self.source)
+        self.assertIn("request_timeout=aiohttp.ClientTimeout(total=1.5, connect=0.5, sock_read=1.0)", self.source)
 
     def test_gdewtf_panel_edits_existing_message_and_uses_api_membership(self):
         start = self.source.index("async def _gdewtf_authorize(")
@@ -676,8 +676,8 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertNotIn("return psycopg.connect(dsn, connect_timeout=4", adapter)
 
     def test_moderation_member_checks_are_bounded_and_cached(self):
-        self.assertIn("_CHAT_MEMBER_REQUEST_TIMEOUT = 3.0", self.source)
-        self.assertIn("_CHAT_MEMBER_FAILURE_TTL = 1.5", self.source)
+        self.assertIn("_CHAT_MEMBER_REQUEST_TIMEOUT = 1.5", self.source)
+        self.assertIn("_CHAT_MEMBER_FAILURE_TTL = 2.0", self.source)
         member_start = self.source.index("async def get_chat_member_cached")
         member_end = self.source.index("async def is_current_chat_member", member_start)
         member_helper = self.source[member_start:member_end]
