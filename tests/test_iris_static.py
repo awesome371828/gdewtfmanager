@@ -596,7 +596,8 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         helper_end = self.source.index("def _gdewtf_is_owner_or_chief(", helper_start)
         helper = self.source[helper_start:helper_end]
         self.assertIn("_GDEWTF_CONTROLLER_CODES", helper)
-        self.assertIn("return bool(values & _GDEWTF_CONTROLLER_CODES)", helper)
+        self.assertIn("if values & _GDEWTF_CONTROLLER_CODES:", helper)
+        self.assertIn("telegram_id in _GDEWTF_CONTROLLER_TELEGRAM_IDS", helper)
         self.assertIn("_GDEWTF_CONTROLLER_TELEGRAM_IDS", helper)
         auth_start = self.source.index("async def _gdewtf_authorize(")
         auth_end = self.source.index("async def _gdewtf_safe_answer", auth_start)
