@@ -38,7 +38,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.methods import GetUpdates
 from aiogram.enums import ChatMemberStatus, ChatType, ParseMode
-from aiogram.exceptions import TelegramBadRequest, TelegramConflictError, TelegramForbiddenError, TelegramNetworkError, TelegramRetryAfter
+from aiogram.exceptions import TelegramBadRequest, TelegramConflictError, TelegramForbiddenError, TelegramNetworkError, TelegramRetryAfter, TelegramServerError
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     BotCommand, BotCommandScopeAllGroupChats, BotCommandScopeAllPrivateChats,
@@ -116,7 +116,8 @@ except ValueError:
 # Bound ordinary API reads so a degraded upstream cannot freeze a command for
 # several seconds. Endpoints that mutate data or authorize privileged actions
 # pass an explicit, larger timeout at the call site.
-_TIMEOUT = aiohttp.ClientTimeout(total=1.8, connect=0.7, sock_read=1.2)
+_TIMEOUT = aiohttp.ClientTimeout(total=3.5, connect=1.0, sock_read=2.5)
+_WRITE_TIMEOUT = aiohttp.ClientTimeout(total=6.0, connect=1.2, sock_read=4.5)
 # Reuse keep-alive connections to avoid a fresh DNS/TCP/TLS handshake on every
 # command. The API session is closed cleanly with the bot during shutdown.
 _API_SESSION: aiohttp.ClientSession | None = None
@@ -128,6 +129,95 @@ _SHUTDOWN_EVENT: asyncio.Event | None = None
 _GDEWTF_API_CACHE: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
 _GDEWTF_API_CACHE_TTL = {"/mods": 4.0, "/cities": 30.0, "/ping": 2.0, "/mod": 2.0}
 _GDEWTF_API_CACHE_LOCK = asyncio.Lock()
+# Keep upstream traffic bounded. Identical simultaneous reads share one request,
+# while independent reads/writes can still proceed concurrently.
+_GDEWTF_API_SEMAPHORE = asyncio.Semaphore(24)
+_GDEWTF_API_INFLIGHT_LOCK = asyncio.Lock()
+_GDEWTF_API_INFLIGHT: dict[tuple[str, str, str], asyncio.Task[dict[str, Any]]] = {}
+
+# Three consecutive transport/server failures open the breaker for ten seconds.
+# A single half-open probe is allowed after the cool-down; authorization still
+# fails closed while the upstream is unavailable.
+_GDEWTF_BREAKER_LOCK = asyncio.Lock()
+_GDEWTF_BREAKER_FAILURES = 0
+_GDEWTF_BREAKER_OPEN_UNTIL = 0.0
+_GDEWTF_BREAKER_HALF_OPEN = False
+_GDEWTF_BREAKER_FAILURE_THRESHOLD = 3
+_GDEWTF_BREAKER_COOLDOWN = 10.0
+
+
+async def _gdewtf_breaker_permit() -> tuple[bool, float]:
+    global _GDEWTF_BREAKER_HALF_OPEN
+    async with _GDEWTF_BREAKER_LOCK:
+        now = time.monotonic()
+        if _GDEWTF_BREAKER_OPEN_UNTIL > now:
+            return False, _GDEWTF_BREAKER_OPEN_UNTIL - now
+        if _GDEWTF_BREAKER_OPEN_UNTIL > 0:
+            if _GDEWTF_BREAKER_HALF_OPEN:
+                return False, 0.5
+            _GDEWTF_BREAKER_HALF_OPEN = True
+        return True, 0.0
+
+
+async def _gdewtf_breaker_record(result: dict[str, Any]) -> None:
+    global _GDEWTF_BREAKER_FAILURES, _GDEWTF_BREAKER_OPEN_UNTIL, _GDEWTF_BREAKER_HALF_OPEN
+    status = int(result.get("http_status") or 0)
+    error = str(result.get("error") or "")
+    transient_failure = (
+        error in {"api_unavailable", "invalid_api_response"}
+        or status >= 500
+    )
+    async with _GDEWTF_BREAKER_LOCK:
+        if transient_failure:
+            _GDEWTF_BREAKER_FAILURES += 1
+            if _GDEWTF_BREAKER_HALF_OPEN or _GDEWTF_BREAKER_FAILURES >= _GDEWTF_BREAKER_FAILURE_THRESHOLD:
+                _GDEWTF_BREAKER_OPEN_UNTIL = time.monotonic() + _GDEWTF_BREAKER_COOLDOWN
+                _GDEWTF_BREAKER_HALF_OPEN = False
+                log_gdewtf.warning(
+                    "GDE.WTF circuit breaker opened for %.1fs after %s consecutive upstream failures",
+                    _GDEWTF_BREAKER_COOLDOWN, _GDEWTF_BREAKER_FAILURES,
+                )
+        else:
+            # Any definitive HTTP/API response proves the route is reachable.
+            _GDEWTF_BREAKER_FAILURES = 0
+            _GDEWTF_BREAKER_OPEN_UNTIL = 0.0
+            _GDEWTF_BREAKER_HALF_OPEN = False
+
+
+async def _gdewtf_api_guarded(
+    method: str, path: str, *, params: dict[str, Any] | None = None,
+    body: dict[str, Any] | None = None,
+    request_timeout: aiohttp.ClientTimeout | None = None,
+) -> dict[str, Any]:
+    allowed, retry_after = await _gdewtf_breaker_permit()
+    if not allowed:
+        return {
+            "ok": False, "error": "api_unavailable", "detail": "circuit_open",
+            "retry_after": max(1, int(retry_after + 0.99)),
+        }
+    try:
+        await asyncio.wait_for(_GDEWTF_API_SEMAPHORE.acquire(), timeout=0.5)
+    except asyncio.TimeoutError:
+        result = {"ok": False, "error": "api_unavailable", "detail": "busy"}
+        await _gdewtf_breaker_record(result)
+        return result
+    try:
+        try:
+            result = await _api_request(
+                method, path, params=params, body=body, request_timeout=request_timeout
+            )
+        except asyncio.CancelledError:
+            # Do not leave a half-open breaker permanently locked if a handler
+            # is cancelled while the probe is in flight.
+            await _gdewtf_breaker_record({"ok": False, "error": "api_unavailable"})
+            raise
+        except Exception:
+            await _gdewtf_breaker_record({"ok": False, "error": "api_unavailable"})
+            raise
+    finally:
+        _GDEWTF_API_SEMAPHORE.release()
+    await _gdewtf_breaker_record(result)
+    return result
 
 
 def _gdewtf_cache_key(path: str, params: dict[str, Any] | None) -> tuple[str, str]:
@@ -165,7 +255,7 @@ def _gdewtf_stale_read(
     return result
 
 
-async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
+async def _api_request(method: str, path: str, *, params: dict[str, Any] | None = None,
                body: dict[str, Any] | None = None,
                request_timeout: aiohttp.ClientTimeout | None = None) -> dict[str, Any]:
     if not API_KEY:
@@ -176,7 +266,10 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
         "Accept": "application/json",
     }
     global _API_SESSION
+    method = method.upper()
     normalized_path = "/" + path.lstrip("/")
+    effective_timeout = request_timeout or (_TIMEOUT if method == "GET" else _WRITE_TIMEOUT)
+    started_at = time.monotonic()
     cache_ttl = _GDEWTF_API_CACHE_TTL.get(normalized_path, 0.0) if method == "GET" else 0.0
     cache_key = _gdewtf_cache_key(normalized_path, params) if cache_ttl else None
     if cache_key is not None:
@@ -196,7 +289,7 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
             method, f"{API_BASE}/{path.lstrip('/')}",
             params=params if method == "GET" else None,
             json=body if method != "GET" else None,
-            timeout=request_timeout or _TIMEOUT,
+            timeout=effective_timeout,
         ) as response:
                 # Be tolerant of API gateways that return a list, a nested
                 # {data: ...} envelope, plain text, or a successful empty body.
@@ -243,6 +336,15 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
                 if response.status >= 400:
                     data.setdefault("ok", False)
                     data.setdefault("http_status", response.status)
+                    if response.status == 429:
+                        data.setdefault("error", "rate_limited")
+                    elif response.status >= 500:
+                        data.setdefault("error", "upstream_server_error")
+                if response.status == 429:
+                    try:
+                        data["retry_after"] = max(1, int(response.headers.get("Retry-After", "1")))
+                    except (TypeError, ValueError):
+                        data["retry_after"] = 1
                 if not data.get("ok") and cache_key is not None:
                     stale = _gdewtf_stale_read(cache_key, normalized_path)
                     if stale is not None:
@@ -260,16 +362,22 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
                             _GDEWTF_API_CACHE.pop(next(iter(_GDEWTF_API_CACHE)))
                 elif method != "GET" and data.get("ok"):
                     _gdewtf_invalidate_api_cache()
+                elapsed = time.monotonic() - started_at
+                if elapsed >= 0.75:
+                    log_gdewtf.warning(
+                        "GDE.WTF API slow response (%s %s, status=%s, elapsed=%.3fs)",
+                        method, normalized_path, response.status, elapsed,
+                    )
                 return data
     except asyncio.TimeoutError as exc:
         log_gdewtf.warning(
-            "GDE.WTF API timeout (%s %s, base=%s, total=%.1fs)",
-            method, path, API_BASE, (request_timeout or _TIMEOUT).total,
+            "GDE.WTF API timeout (%s %s, base=%s, total=%.1fs, elapsed=%.3fs)",
+            method, path, API_BASE, effective_timeout.total, time.monotonic() - started_at,
         )
         stale = _gdewtf_stale_read(cache_key, normalized_path) if cache_key is not None else None
         if stale is not None:
             return stale
-        return {"ok": False, "error": "api_unavailable", "detail": "timeout"}
+        return {"ok": False, "error": "api_unavailable", "detail": "timeout", "elapsed": round(time.monotonic() - started_at, 3)}
     except aiohttp.ClientConnectorError as exc:
         # This distinguishes DNS/TCP/TLS connection failures from a slow API response.
         log_gdewtf.warning(
@@ -289,6 +397,55 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
         if stale is not None:
             return stale
         return {"ok": False, "error": "api_unavailable", "detail": "client_error"}
+
+
+
+async def _api(
+    method: str, path: str, *, params: dict[str, Any] | None = None,
+    body: dict[str, Any] | None = None,
+    request_timeout: aiohttp.ClientTimeout | None = None,
+) -> dict[str, Any]:
+    """Bound upstream load, share in-flight GETs, and fail fast during outages."""
+    method = method.upper()
+    if method != "GET":
+        # Never automatically replay a write: the remote server may have committed
+        # it even when our response was lost.
+        return await _gdewtf_api_guarded(
+            method, path, params=params, body=body, request_timeout=request_timeout
+        )
+
+    normalized_path = "/" + path.lstrip("/")
+    cache_key = _gdewtf_cache_key(normalized_path, params)
+    cache_ttl = _GDEWTF_API_CACHE_TTL.get(normalized_path, 0.0)
+    cached = _GDEWTF_API_CACHE.get(cache_key) if cache_ttl else None
+    if cached and time.monotonic() - cached[0] < cache_ttl:
+        return dict(cached[1])
+    # Circuit-open fallback is safe only for the explicitly public directory lists.
+    if _GDEWTF_BREAKER_OPEN_UNTIL > time.monotonic():
+        stale = _gdewtf_stale_read(cache_key, normalized_path)
+        if stale is not None:
+            return stale
+    timeout_key = str((request_timeout or _TIMEOUT).total)
+    inflight_key = (normalized_path, cache_key[1], timeout_key)
+    async with _GDEWTF_API_INFLIGHT_LOCK:
+        task = _GDEWTF_API_INFLIGHT.get(inflight_key)
+        if task is None or task.done():
+            task = asyncio.create_task(
+                _gdewtf_api_guarded(
+                    method, path, params=params, body=None, request_timeout=request_timeout
+                ),
+                name=f"gdewtf-get:{normalized_path}",
+            )
+            _GDEWTF_API_INFLIGHT[inflight_key] = task
+    try:
+        # Shield the shared request so cancellation of one Telegram update does not
+        # cancel the result awaited by other updates.
+        return await asyncio.shield(task)
+    finally:
+        if task.done():
+            async with _GDEWTF_API_INFLIGHT_LOCK:
+                if _GDEWTF_API_INFLIGHT.get(inflight_key) is task:
+                    _GDEWTF_API_INFLIGHT.pop(inflight_key, None)
 
 
 def _clean(value: Any, default: str = "—") -> str:
@@ -325,13 +482,24 @@ def _mod_line(mod: dict[str, Any]) -> str:
 def _error_text(data: dict[str, Any]) -> str:
     err = str(data.get("error") or "unknown_error")
     detail = str(data.get("detail") or "")
+    status = int(data.get("http_status") or 0)
+    if status == 429 or err == "rate_limited":
+        return f"GDE.WTF ограничил частоту запросов. Повтори примерно через {int(data.get('retry_after') or 1)} сек."
+    if status >= 500 or err == "upstream_server_error":
+        return "Сервер GDE.WTF временно отвечает с ошибкой. Попробуй ещё раз немного позже."
     if err == "api_unavailable" and detail == "connection":
         return "Не удалось подключиться к GDE.WTF (DNS/TCP/TLS). Проверь доступность домена с хоста Relax Dev."
     if err == "api_unavailable" and detail == "timeout":
-        return "GDE.WTF не ответил за 1,8 секунды. Это тайм-аут внешнего API."
+        return "GDE.WTF не ответил за отведённое время. Результат операции нужно проверить перед повтором."
+    if err == "api_unavailable" and detail == "circuit_open":
+        return f"GDE.WTF временно нестабилен. Защита от повторных запросов включена; повтори команду примерно через {int(data.get('retry_after') or 1)} сек."
+    if err == "api_unavailable" and detail == "busy":
+        return "GDE.WTF перегружен запросами. Попробуй ещё раз через несколько секунд."
+    if err == "api_unavailable" and detail == "mutation_status_unknown":
+        return "GDE.WTF не подтвердил результат операции. Она могла выполниться. Не повторяй её вслепую — сначала проверь состояние профиля."
     messages = {
         "api_key_not_configured": "Не задан секрет GDEWTF_API_KEY в окружении хоста.",
-        "api_unavailable": "GDE.WTF API недоступен или не ответил за 1,8 секунды.",
+        "api_unavailable": "GDE.WTF API временно недоступен. Повтори команду чуть позже.",
         "unauthorized": "Ключ GDE.WTF отклонён. Проверь GDEWTF_API_KEY.",
         "not_found": "Модератор не найден.",
         "not_a_moderator": "Этот аккаунт не является модератором.",
@@ -459,7 +627,7 @@ def _gdewtf_panel_keyboard() -> InlineKeyboardMarkup:
 
 # Short-lived permission cache: avoids an extra GDE.WTF API lookup on every command.
 _GDEWTF_ACCESS_CACHE: dict[int, tuple[float, dict[str, Any]]] = {}
-_GDEWTF_ACCESS_CACHE_TTL = 3.0
+_GDEWTF_ACCESS_CACHE_TTL = 10.0
 _GDEWTF_KNOWN_PERMS = {
     "events", "marks", "users", "beta", "pvo", "maint", "stats", "support", "notice"
 }
@@ -660,7 +828,7 @@ async def _gdewtf_authorize(user_id: int, action: str, username: str | None = No
     elif cached:
         _GDEWTF_ACCESS_CACHE.pop(user_id, None)
 
-    timeout = aiohttp.ClientTimeout(total=1.4, connect=0.6, sock_read=1.0)
+    timeout = aiohttp.ClientTimeout(total=3.2, connect=1.0, sock_read=2.4)
 
     async def lookup(query: str) -> dict[str, Any]:
         _GDEWTF_API_CACHE.pop(_gdewtf_cache_key("/mod", {"q": query}), None)
@@ -703,7 +871,7 @@ async def _gdewtf_authorize(user_id: int, action: str, username: str | None = No
         _GDEWTF_API_CACHE.pop(_gdewtf_cache_key("/mods", {}), None)
         directory = await _api(
             "GET", "/mods",
-            request_timeout=aiohttp.ClientTimeout(total=1.6, connect=0.6, sock_read=1.1),
+            request_timeout=aiohttp.ClientTimeout(total=3.5, connect=1.0, sock_read=2.5),
         )
         if not directory.get("ok"):
             transport_failure = directory
@@ -1465,14 +1633,21 @@ async def gdewtf_command(message: Message) -> None:
                 _gdewtf_invalidate_api_cache()
                 verify = await _api(
                     "GET", "/mod", params={"q": remove_q},
-                    request_timeout=aiohttp.ClientTimeout(total=3, connect=1.5, sock_read=2),
+                    request_timeout=aiohttp.ClientTimeout(total=2.0, connect=0.8, sock_read=1.5),
                 )
                 if not verify.get("ok") and str(verify.get("error") or "") == "not_found":
                     data = {"ok": True, "pub": remove_q, "mod": {}, "verified_after_timeout": True}
-                elif verify.get("ok") and isinstance(verify.get("mod"), dict):
-                    # Still present: the removal did not take effect (or the API
-                    # has not propagated it yet), so retain the honest timeout.
-                    log_gdewtf.warning("GDE.WTF /mod/remove timed out and verification still finds q=%r", remove_q)
+                else:
+                    # A read-back that still finds the moderator may be observing
+                    # eventual consistency. Never replay this non-idempotent write.
+                    log_gdewtf.warning(
+                        "GDE.WTF /mod/remove outcome is unconfirmed; verification=%s q=%r",
+                        verify.get("error") or "profile_still_present", remove_q,
+                    )
+                    data = {
+                        "ok": False, "error": "api_unavailable",
+                        "detail": "mutation_status_unknown", "pub": remove_q,
+                    }
         elif action in {"бан", "ban"}:
             if not rest:
                 await _gdewtf_safe_answer(message, "Формат: <code>!бан @username [причина]</code>")
@@ -1677,6 +1852,52 @@ if DATABASE_URL:
 else:
     raise RuntimeError("Запуск без постоянной БД запрещён: не задан DATABASE_URL. Проверь PostgreSQL в переменных окружения RelaxDev.")
 
+# A filesystem flock only coordinates processes sharing one container. Use a
+# PostgreSQL session advisory lock as the cross-container polling singleton.
+_POLLING_DB_LOCK_CONNECTION = None
+_POLLING_DB_LOCK_KEY = "gdewtfmanager:telegram-poller:v1"
+
+
+def acquire_database_polling_lock() -> None:
+    global _POLLING_DB_LOCK_CONNECTION
+    if _POLLING_DB_LOCK_CONNECTION is not None:
+        return
+    conn = db.pool.getconn(timeout=3.0)
+    try:
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT pg_try_advisory_lock(hashtextextended(%s, 0)) AS locked",
+                (_POLLING_DB_LOCK_KEY,),
+            )
+            row = cur.fetchone()
+        if not row or not row["locked"]:
+            raise RuntimeError(
+                "Another deployment already holds the PostgreSQL polling lock for this bot"
+            )
+        _POLLING_DB_LOCK_CONNECTION = conn
+        log.info("Cross-container PostgreSQL polling lock acquired")
+    except Exception:
+        db.pool.putconn(conn)
+        raise
+
+
+def release_database_polling_lock() -> None:
+    global _POLLING_DB_LOCK_CONNECTION
+    conn = _POLLING_DB_LOCK_CONNECTION
+    _POLLING_DB_LOCK_CONNECTION = None
+    if conn is None:
+        return
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT pg_advisory_unlock(hashtextextended(%s, 0))",
+                (_POLLING_DB_LOCK_KEY,),
+            )
+    finally:
+        db.pool.putconn(conn)
+
+
 # Bound ordinary Telegram API calls so a stalled send cannot block a command
 # for 6–7 seconds. Keep polling's transport timeout longer than Telegram's
 # 25-second long-poll wait; otherwise the session default can abort every poll.
@@ -1690,7 +1911,17 @@ class LowLatencyBot(Bot):
                 request_timeout = _TELEGRAM_POLLING_REQUEST_TIMEOUT
             else:
                 request_timeout = _TELEGRAM_API_TIMEOUT
-        return await super().__call__(method, request_timeout=request_timeout)
+        try:
+            return await super().__call__(method, request_timeout=request_timeout)
+        except TelegramRetryAfter as exc:
+            if isinstance(method, GetUpdates):
+                delay = min(60.0, max(1.0, float(exc.retry_after)))
+                log.warning(
+                    "Telegram rate-limited getUpdates; respecting retry_after=%.1fs",
+                    delay,
+                )
+                await asyncio.sleep(delay)
+            raise
 
 # Long polling needs an HTTP timeout longer than Telegram's server-side wait.
 # A short GetUpdates transport timeout causes repeated polls and delays updates.
@@ -8128,6 +8359,11 @@ _ERROR_NOTICE_COOLDOWN_SECONDS = 60.0
 @dp.errors()
 async def global_error_handler(event) -> bool:
     exc = getattr(event, "exception", event)
+    if isinstance(exc, (TelegramNetworkError, TelegramServerError, TelegramRetryAfter)):
+        # Telegram may accept a send before its response is lost. Do not retry
+        # ambiguous writes and do not label a transient network outage as a code bug.
+        log.warning("Transient Telegram API failure during update: %s: %s", type(exc).__name__, str(exc)[:240])
+        return True
     log.error("Unhandled update error: %r", exc, exc_info=(type(exc), exc, exc.__traceback__))
     update = getattr(event, "update", None)
     message = (
@@ -9295,8 +9531,15 @@ async def run_forever() -> None:
         except (NotImplementedError, RuntimeError):
             log.warning("Could not register event-loop handler for %s", _sig.name)
 
-    # Acquire once for the lifetime of this process; do not reacquire flock on restarts.
+    # Acquire both a local process lock and a database-wide advisory lock once.
+    # The PostgreSQL lock also prevents two Relax Dev containers from polling
+    # the same Telegram token when their filesystems are isolated.
     acquire_single_instance_lock()
+    try:
+        await asyncio.to_thread(acquire_database_polling_lock)
+    except Exception as exc:
+        log.critical("Could not acquire cross-container polling lock: %s", type(exc).__name__)
+        raise SystemExit(23) from exc
     failures = 0
     while True:
         delay = 5.0
@@ -9306,6 +9549,7 @@ async def run_forever() -> None:
             if _SHUTDOWN_EVENT.is_set():
                 log.info("Shutdown signal received; bot stopped cleanly")
                 try:
+                    await asyncio.to_thread(release_database_polling_lock)
                     await asyncio.to_thread(db.close)
                     log.info("PostgreSQL connection pool closed cleanly")
                 except Exception:
