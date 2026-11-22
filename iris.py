@@ -229,6 +229,7 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
             return dict(cached[1])
     if not _GDEWTF_API_CIRCUIT.allow():
         return {"ok": False, "error": "api_unavailable", "detail": "circuit_open"}
+    request_started = time.monotonic()
     try:
         if _API_SESSION is None or _API_SESSION.closed:
             async with _API_SESSION_LOCK:
@@ -236,7 +237,10 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
                     _API_SESSION = aiohttp.ClientSession(
                         timeout=_TIMEOUT,
                         headers=headers,
-                        connector=aiohttp.TCPConnector(limit=100, ttl_dns_cache=300, keepalive_timeout=30),
+                        connector=aiohttp.TCPConnector(
+                            limit=100, limit_per_host=80, ttl_dns_cache=600,
+                            keepalive_timeout=90, enable_cleanup_closed=True,
+                        ),
                     )
         async with _API_SESSION.request(
             method, f"{API_BASE}/{path.lstrip('/')}",
@@ -248,6 +252,12 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
                 # {data: ...} envelope, plain text, or a successful empty body.
                 # Keep the HTTP status authoritative for transport-level success.
                 raw_text = await response.text()
+                elapsed = time.monotonic() - request_started
+                if elapsed >= 0.75:
+                    log_gdewtf.warning(
+                        "GDE.WTF API slow response (%s %s, status=%s, duration_ms=%.0f)",
+                        method, normalized_path, response.status, elapsed * 1000,
+                    )
                 try:
                     parsed = json.loads(raw_text) if raw_text.strip() else None
                 except (json.JSONDecodeError, UnicodeDecodeError):
@@ -785,7 +795,9 @@ async def _gdewtf_authorize_locked(user_id: int, action: str, username: str | No
 
     # Only a definitive miss permits a directory fallback; outages fail closed quickly.
     if mod is None and transport_failure is None:
-        _GDEWTF_API_CACHE.pop(_gdewtf_cache_key("/mods", {}), None)
+        # Keep the short-lived /mods snapshot: repeatedly evicting it here made
+        # every authorization fallback perform another full directory request.
+        # The cache is invalidated after successful mutations and expires quickly.
         directory = await _api(
             "GET", "/mods",
             request_timeout=aiohttp.ClientTimeout(total=5.0, connect=1.5, sock_read=4.0),
@@ -868,8 +880,16 @@ async def _gdewtf_safe_answer(message: Message, *args: Any, **kwargs: Any) -> bo
     if args and isinstance(args[0], str) and not args[0].startswith("✦ <b>"):
         args = (format_panel("ОТВЕТ GDE.WTF", args[0], "GDE.WTF · внешний API"), *args[1:])
     kwargs["request_timeout"] = 8.0
+    send_started = time.monotonic()
     try:
         await message.answer(*args, **kwargs)
+        send_elapsed = time.monotonic() - send_started
+        if send_elapsed >= 0.75:
+            log_gdewtf.warning(
+                "Telegram reply delivery slow (chat_id=%s, duration_ms=%.0f)",
+                getattr(getattr(message, "chat", None), "id", None),
+                send_elapsed * 1000,
+            )
         return True
     except (asyncio.TimeoutError, TelegramNetworkError) as exc:
         log_gdewtf.warning(
