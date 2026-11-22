@@ -630,8 +630,16 @@ class PearCMStaticRegressionTests(unittest.TestCase):
             auth,
         )
         self.assertIn("otherwise a self-ban deadlocks", auth)
-        self.assertIn('data = await _api("POST", "/ban", body={"q": rest[0], "ban": False})', self.source)
+        self.assertIn('"POST", "/ban", body={"q": rest[0], "ban": False}', self.source)
         self.assertIn('data = await _api("POST", "/warn/clear", body={"q": q})', self.source)
+
+    def test_gdewtf_ban_and_unban_skip_target_prelookup_and_use_recovery_timeout(self):
+        start = self.source.index("# Ban/unban endpoints resolve the supplied identifier themselves.")
+        end = self.source.index("resolved_target_profile:", start)
+        resolver = self.source[start:end]
+        self.assertIn('action not in {"бан", "ban", "разбан", "unban", "анбан"}', resolver)
+        self.assertIn('total=4.0, connect=0.8, sock_read=3.0', self.source)
+        self.assertIn('"POST", "/ban", body={"q": rest[0], "ban": False}', self.source)
 
     def test_gdewtf_circuit_breaker_does_not_extend_open_state_on_late_failures(self):
         start = self.source.index("class _GDEWTFAPICircuitBreaker")
