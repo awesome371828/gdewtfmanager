@@ -976,10 +976,10 @@ async def gdewtf_command(message: Message) -> None:
         "амб", "amb", "rgov", "регион", "региональный", "назначить", "modset",
         "бан", "ban", "разбан", "unban", "анбан",
     }
-    resolved_target_profile: dict[str, Any] | None = None
     # Ban/unban endpoints resolve the supplied identifier themselves. Do not
     # preflight GET /mod or /mods here: a blocked target may be hidden from
     # directory reads, and that extra read can time out before the recovery POST.
+    resolved_target_profile: dict[str, Any] | None = None
     if action in target_actions_for_resolution and rest and action not in {"бан", "ban", "разбан", "unban", "анбан"}:
         is_warn_index = action in {"снятьварн", "снять-варн", "анварн", "unwarn"} and rest[0].isdigit() and len(rest[0]) < 7
         raw_target = rest[0]
