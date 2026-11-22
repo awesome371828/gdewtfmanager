@@ -1,0 +1,55 @@
+import pathlib
+import unittest
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+SOURCE = (ROOT / "iris.py").read_text(encoding="utf-8")
+
+
+class RuntimeReliabilityRegressionTests(unittest.TestCase):
+    def test_gdewtf_api_circuit_breaker_is_wired_into_requests(self):
+        self.assertIn("class _GDEWTFAPICircuitBreaker", SOURCE)
+        self.assertIn("_GDEWTF_API_CIRCUIT.allow()", SOURCE)
+        self.assertIn("_GDEWTF_API_CIRCUIT.failure()", SOURCE)
+        self.assertIn("_GDEWTF_API_CIRCUIT.success()", SOURCE)
+        self.assertIn('"detail": "circuit_open"', SOURCE)
+
+    def test_get_updates_honours_telegram_retry_after(self):
+        start = SOURCE.index("class LowLatencyBot")
+        end = SOURCE.index("# Long polling needs an HTTP timeout", start)
+        body = SOURCE[start:end]
+        self.assertIn("isinstance(method, GetUpdates)", body)
+        self.assertIn("except TelegramRetryAfter as exc:", body)
+        self.assertIn("float(exc.retry_after)", body)
+        self.assertIn("await asyncio.sleep(delay)", body)
+        self.assertIn("except (TelegramNetworkError, TelegramServerError) as exc:", body)
+
+    def test_transport_errors_do_not_trigger_secondary_chat_replies(self):
+        start = SOURCE.index("async def global_error_handler")
+        end = SOURCE.index("# Extra Russian moderation aliases", start)
+        body = SOURCE[start:end]
+        self.assertIn(
+            "isinstance(exc, (TelegramNetworkError, TelegramServerError, TelegramRetryAfter))",
+            body,
+        )
+        self.assertLess(body.index("return True"), body.index("update = getattr(event, \"update\", None)"))
+
+    def test_gdewtf_authorization_is_bounded_and_fails_fast(self):
+        start = SOURCE.index("async def _gdewtf_authorize")
+        end = SOURCE.index("async def _gdewtf_safe_answer", start)
+        body = SOURCE[start:end]
+        self.assertIn("total=0.9", body)
+        self.assertIn("transport_failure", body)
+        self.assertIn("return False", body)
+
+    def test_mod_remove_timeout_does_not_chain_a_slow_verification_request(self):
+        start = SOURCE.index('elif action in {"снять", "modremove"}:')
+        end = SOURCE.index('elif action in {"бан", "ban"}:', start)
+        body = SOURCE[start:end]
+        self.assertIn("total=1.2", body)
+        self.assertIn("automatic retry suppressed", body)
+        self.assertNotIn("verify = await _api", body)
+        self.assertNotIn("total=3", body)
+
+
+if __name__ == "__main__":
+    unittest.main()
