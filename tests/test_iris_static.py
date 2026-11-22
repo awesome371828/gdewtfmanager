@@ -515,7 +515,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
     def test_ordinary_telegram_requests_have_a_bounded_four_second_timeout(self):
         # Keep ordinary sends bounded while allowing the 25-second GetUpdates
         # long poll to finish without a premature transport timeout.
-        self.assertIn("_TELEGRAM_API_TIMEOUT = 4", self.source)
+        self.assertIn("_TELEGRAM_API_TIMEOUT = 2.5", self.source)
         self.assertIn("_TELEGRAM_POLLING_REQUEST_TIMEOUT = 35", self.source)
         start = self.source.index("class LowLatencyBot")
         end = self.source.index("bot = LowLatencyBot(", start)
@@ -528,7 +528,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         start = self.source.index("async def _gdewtf_safe_answer")
         end = self.source.index("\n\n", self.source.index("return False", start))
         helper = self.source[start:end]
-        self.assertIn('kwargs["request_timeout"] = 4.0', helper)
+        self.assertIn('kwargs["request_timeout"] = 1.5', helper)
         self.assertIn("not retrying", helper)
         self.assertNotIn("for attempt in range", helper)
         self.assertEqual(helper.count("await message.answer(*args, **kwargs)"), 1)
@@ -560,7 +560,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         start = self.source.index("async def _gdewtf_authorize(")
         end = self.source.index("@gdewtf_router.message", start)
         auth = self.source[start:end]
-        self.assertIn('timeout = aiohttp.ClientTimeout(total=0.9, connect=0.4, sock_read=0.6)', auth)
+        self.assertIn('timeout = aiohttp.ClientTimeout(total=0.65, connect=0.3, sock_read=0.45)', auth)
         self.assertIn('error in {"api_unavailable", "unauthorized", "invalid_api_response"}', auth)
         self.assertIn('if mod is None and transport_failure is None and username:', auth)
         self.assertIn('cached = _GDEWTF_ACCESS_CACHE.get(user_id)', auth)
@@ -618,8 +618,8 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         auth = self.source[auth_start:auth_end]
         self.assertIn("async with lock:", auth)
         self.assertIn("_GDEWTF_AUTH_FAILURE_CACHE", auth)
-        self.assertIn("_GDEWTF_AUTH_FAILURE_TTL = 8.0", self.source)
-        self.assertIn("_GDEWTF_ACCESS_CACHE_TTL = 10.0", self.source)
+        self.assertIn("_GDEWTF_AUTH_FAILURE_TTL = 30.0", self.source)
+        self.assertIn("_GDEWTF_ACCESS_CACHE_TTL = 30.0", self.source)
 
     def test_banned_designated_controller_keeps_full_api_management_access(self):
         start = self.source.index("async def _gdewtf_authorize_locked(")
