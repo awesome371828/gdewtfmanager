@@ -1610,7 +1610,7 @@ async def gdewtf_command(message: Message) -> None:
                 body["reason"] = " ".join(rest[1:])
             data = await _api(
                 "POST", "/ban", body=body,
-                request_timeout=aiohttp.ClientTimeout(total=8.0, connect=2.0, sock_read=6.0),
+                request_timeout=aiohttp.ClientTimeout(total=4.0, connect=0.8, sock_read=3.0),
             )
         elif action in {"разбан", "unban", "анбан"}:
             if not rest:
@@ -1620,7 +1620,7 @@ async def gdewtf_command(message: Message) -> None:
             # server can unban even when the target is absent from /mods.
             data = await _api(
                 "POST", "/ban", body={"q": rest[0], "ban": False},
-                request_timeout=aiohttp.ClientTimeout(total=8.0, connect=2.0, sock_read=6.0),
+                request_timeout=aiohttp.ClientTimeout(total=4.0, connect=0.8, sock_read=3.0),
             )
         else:
             await _gdewtf_safe_answer(message, _help())
