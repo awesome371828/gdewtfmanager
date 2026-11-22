@@ -327,6 +327,10 @@ async def _api_request(method: str, path: str, *, params: dict[str, Any] | None 
                 if response.status >= 400:
                     data.setdefault("ok", False)
                     data.setdefault("http_status", response.status)
+                    if response.status == 429:
+                        data.setdefault("error", "rate_limited")
+                    elif response.status >= 500:
+                        data.setdefault("error", "upstream_server_error")
                 if response.status == 429:
                     try:
                         data["retry_after"] = max(1, int(response.headers.get("Retry-After", "1")))
@@ -358,8 +362,8 @@ async def _api_request(method: str, path: str, *, params: dict[str, Any] | None 
                 return data
     except asyncio.TimeoutError as exc:
         log_gdewtf.warning(
-            "GDE.WTF API timeout (%s %s, base=%s, total=%.1fs)",
-            method, path, API_BASE, effective_timeout.total,
+            "GDE.WTF API timeout (%s %s, base=%s, total=%.1fs, elapsed=%.3fs)",
+            method, path, API_BASE, effective_timeout.total, time.monotonic() - started_at,
         )
         stale = _gdewtf_stale_read(cache_key, normalized_path) if cache_key is not None else None
         if stale is not None:
@@ -460,6 +464,11 @@ def _mod_line(mod: dict[str, Any]) -> str:
 def _error_text(data: dict[str, Any]) -> str:
     err = str(data.get("error") or "unknown_error")
     detail = str(data.get("detail") or "")
+    status = int(data.get("http_status") or 0)
+    if status == 429 or err == "rate_limited":
+        return f"GDE.WTF ограничил частоту запросов. Повтори примерно через {int(data.get('retry_after') or 1)} сек."
+    if status >= 500 or err == "upstream_server_error":
+        return "Сервер GDE.WTF временно отвечает с ошибкой. Попробуй ещё раз немного позже."
     if err == "api_unavailable" and detail == "connection":
         return "Не удалось подключиться к GDE.WTF (DNS/TCP/TLS). Проверь доступность домена с хоста Relax Dev."
     if err == "api_unavailable" and detail == "timeout":
@@ -472,7 +481,7 @@ def _error_text(data: dict[str, Any]) -> str:
         return "GDE.WTF не подтвердил результат операции. Она могла выполниться. Не повторяй её вслепую — сначала проверь состояние профиля."
     messages = {
         "api_key_not_configured": "Не задан секрет GDEWTF_API_KEY в окружении хоста.",
-        "api_unavailable": "GDE.WTF API недоступен или не ответил за 1,8 секунды.",
+        "api_unavailable": "GDE.WTF API временно недоступен. Повтори команду чуть позже.",
         "unauthorized": "Ключ GDE.WTF отклонён. Проверь GDEWTF_API_KEY.",
         "not_found": "Модератор не найден.",
         "not_a_moderator": "Этот аккаунт не является модератором.",
