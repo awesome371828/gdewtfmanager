@@ -817,14 +817,14 @@ async def _gdewtf_authorize_locked(user_id: int, action: str, username: str | No
             "Проверены Telegram ID, username и список модераторов. "
             "Убедись, что Telegram привязан к профилю с кодом RND-XXXX."
         )
-    # A controller must be able to reverse an accidental self-ban. Keep this
-    # narrow: inactive/banned profiles may pass only the unban action, and only
-    # when the profile is one of the explicitly designated controller codes.
+    # The API key belongs to the integration, not to the target profile.
+    # A designated controller must retain API-management access even if their
+    # own GDE.WTF profile is banned/disabled; otherwise a self-ban deadlocks
+    # every recovery and moderation action. Identity is still verified above,
+    # and only the two explicitly approved controller codes get this bypass.
     is_designated_controller = _gdewtf_is_designated_controller(mod)
-    is_unban_action = action in {"разбан", "unban", "анбан"}
-    if mod.get("banned") is True or mod.get("active") is False:
-        if not (is_designated_controller and is_unban_action):
-            return False, "⛔ Аккаунт отключён или заблокирован в GDE.WTF. Для восстановления попроси второго контроллера проекта выполнить разбан."
+    if (mod.get("banned") is True or mod.get("active") is False) and not is_designated_controller:
+        return False, "⛔ Аккаунт отключён или заблокирован в GDE.WTF. Обратись к контроллеру проекта для восстановления."
     # Cache only a positively resolved, identity-verified profile.
     _GDEWTF_ACCESS_CACHE[user_id] = (time.monotonic(), mod)
     # Read-only actions are available to any active moderator with a correctly
