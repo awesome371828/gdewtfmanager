@@ -552,7 +552,9 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         start = self.source.index("async def _gdewtf_authorize(")
         end = self.source.index("@gdewtf_router.message", start)
         auth = self.source[start:end]
-        self.assertIn('timeout = aiohttp.ClientTimeout(total=1.4, connect=0.6, sock_read=1.0)', auth)
+        self.assertIn('timeout = aiohttp.ClientTimeout(total=0.9, connect=0.4, sock_read=0.65)', auth)
+        self.assertIn('error in {"api_unavailable", "unauthorized", "invalid_api_response"}', auth)
+        self.assertIn('if mod is None and transport_failure is None and username:', auth)
         self.assertIn('cached = _GDEWTF_ACCESS_CACHE.get(user_id)', auth)
         self.assertIn('query = str(user_id)', auth)
         self.assertIn('if mod is None and transport_failure is None and username:', auth)
