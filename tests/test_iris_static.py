@@ -510,12 +510,12 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         # AiohttpSession forwards kwargs to aiogram BaseSession; `family` is an
         # aiohttp TCPConnector option, not a supported AiohttpSession argument.
         self.assertNotIn("family=socket.AF_INET6", self.source)
-        self.assertEqual(self.source.count("AiohttpSession(timeout=8, limit=500)"), 2)
+        self.assertEqual(self.source.count("AiohttpSession(timeout=12, limit=500)"), 2)
 
     def test_ordinary_telegram_requests_have_a_bounded_three_second_timeout(self):
         # Keep ordinary sends bounded while allowing the 25-second GetUpdates
         # long poll to finish without a premature transport timeout.
-        self.assertIn("_TELEGRAM_API_TIMEOUT = 3", self.source)
+        self.assertIn("_TELEGRAM_API_TIMEOUT = 8", self.source)
         self.assertIn("_TELEGRAM_POLLING_REQUEST_TIMEOUT = 35", self.source)
         start = self.source.index("class LowLatencyBot")
         end = self.source.index("bot = LowLatencyBot(", start)
@@ -528,7 +528,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         start = self.source.index("async def _gdewtf_safe_answer")
         end = self.source.index("\n\n", self.source.index("return False", start))
         helper = self.source[start:end]
-        self.assertIn('kwargs["request_timeout"] = 2.0', helper)
+        self.assertIn('kwargs["request_timeout"] = 8.0', helper)
         self.assertIn("not retrying", helper)
         self.assertNotIn("for attempt in range", helper)
         self.assertEqual(helper.count("await message.answer(*args, **kwargs)"), 1)
@@ -560,7 +560,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         start = self.source.index("async def _gdewtf_authorize(")
         end = self.source.index("@gdewtf_router.message", start)
         auth = self.source[start:end]
-        self.assertIn('timeout = aiohttp.ClientTimeout(total=0.9, connect=0.4, sock_read=0.65)', auth)
+        self.assertIn('timeout = aiohttp.ClientTimeout(total=4.0, connect=1.5, sock_read=3.0)', auth)
         self.assertIn('error in {"api_unavailable", "unauthorized", "invalid_api_response"}', auth)
         self.assertIn('if mod is None and transport_failure is None and username:', auth)
         self.assertIn('cached = _GDEWTF_ACCESS_CACHE.get(user_id)', auth)
@@ -676,7 +676,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertNotIn("return psycopg.connect(dsn, connect_timeout=4", adapter)
 
     def test_moderation_member_checks_are_bounded_and_cached(self):
-        self.assertIn("_CHAT_MEMBER_REQUEST_TIMEOUT = 0.9", self.source)
+        self.assertIn("_CHAT_MEMBER_REQUEST_TIMEOUT = 3.0", self.source)
         self.assertIn("_CHAT_MEMBER_FAILURE_TTL = 1.5", self.source)
         member_start = self.source.index("async def get_chat_member_cached")
         member_end = self.source.index("async def is_current_chat_member", member_start)
@@ -707,7 +707,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
 
 
     def test_gdewtf_reads_fail_fast_and_safe_lists_can_use_short_stale_cache(self):
-        self.assertIn("ClientTimeout(total=1.8, connect=0.7, sock_read=1.2)", self.source)
+        self.assertIn("ClientTimeout(total=8.0, connect=2.0, sock_read=6.0)", self.source)
         self.assertIn("def _gdewtf_stale_read(", self.source)
         self.assertIn('path not in {"/mods", "/cities"}', self.source)
         self.assertIn('max_age = 30.0 if path == "/mods" else 300.0', self.source)
