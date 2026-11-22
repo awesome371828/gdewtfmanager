@@ -37,9 +37,18 @@ class RuntimeReliabilityRegressionTests(unittest.TestCase):
         start = SOURCE.index("async def _gdewtf_authorize")
         end = SOURCE.index("async def _gdewtf_safe_answer", start)
         body = SOURCE[start:end]
-        self.assertIn("total=0.9", body)
+        self.assertIn("total=0.65", body)
         self.assertIn("transport_failure", body)
         self.assertIn("return False", body)
+
+    def test_targetless_warn_and_ban_skip_external_authorization(self):
+        start = SOURCE.index("async def gdewtf_command")
+        end = SOURCE.index("# The GDE.WTF router is mounted", start) if "# The GDE.WTF router is mounted" in SOURCE[start:] else start + 5000
+        body = SOURCE[start:end]
+        guard = 're.fullmatch(r"!\\s*(?:варн|warn|бан|ban)\\s*", text, re.IGNORECASE)'
+        self.assertIn(guard, body)
+        self.assertLess(body.index(guard), body.index("await _gdewtf_authorize("))
+        self.assertIn("not has_reply_target", body)
 
     def test_mod_remove_timeout_does_not_chain_a_slow_verification_request(self):
         start = SOURCE.index('elif action in {"снять", "modremove"}:')
