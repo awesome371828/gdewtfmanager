@@ -758,7 +758,7 @@ async def _gdewtf_authorize_locked(user_id: int, action: str, username: str | No
 
     # Authorization must fail quickly when the external service is unhealthy;
     # the circuit breaker prevents every command from paying this timeout.
-    timeout = aiohttp.ClientTimeout(total=4.0, connect=1.5, sock_read=3.0)
+    timeout = aiohttp.ClientTimeout(total=0.9, connect=0.4, sock_read=0.6)
 
     async def lookup(query: str) -> dict[str, Any]:
         _GDEWTF_API_CACHE.pop(_gdewtf_cache_key("/mod", {"q": query}), None)
