@@ -46,6 +46,7 @@ from aiogram.types import (
     ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, MenuButtonWebApp,
 )
 from postgres_adapter import PostgresClient, create_client_from_env
+from gdewtf_reliability import PersistentUpdateDeduplicationMiddleware, LatencyProfiler
 
 try:
     import fcntl
@@ -1863,6 +1864,10 @@ bot = LowLatencyBot(
 )
 dp = Dispatcher()
 router = Router()
+_LATENCY_PROFILER = LatencyProfiler()
+if db is not None:
+    dp.update.outer_middleware(PersistentUpdateDeduplicationMiddleware(db))
+
 
 
 class UpdateLatencyMiddleware(BaseMiddleware):
@@ -1876,9 +1881,10 @@ class UpdateLatencyMiddleware(BaseMiddleware):
             if elapsed >= 0.75:
                 update = event
                 update_id = getattr(update, "update_id", None)
+                _LATENCY_PROFILER.observe("telegram.update", elapsed)
                 log.warning(
-                    "Slow Telegram update (update_id=%s, duration_ms=%.0f)",
-                    update_id, elapsed * 1000,
+                    "Slow Telegram update (update_id=%s, duration_ms=%.0f, profile=%s)",
+                    update_id, elapsed * 1000, _LATENCY_PROFILER.snapshot().get("telegram.update"),
                 )
 
 
