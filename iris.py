@@ -455,24 +455,23 @@ async def _gdewtf_fetch_people_count() -> tuple[int | None, str | None]:
 def _profile(mod: dict[str, Any]) -> str:
     warns = mod.get("warns") or []
     perms = mod.get("perms") or []
-    return (
-        f"🌐 <b>GDE.WTF · профиль модератора</b>\n\n"
+    body = (
         f"{_mod_line(mod)}\n"
-        f"Telegram ID: <code>{_clean(mod.get('tg_id'))}</code>\n"
-        f"Роль: {_clean(mod.get('role_label') or mod.get('role'))}\n"
-        f"Город: {_clean(mod.get('city_name') or mod.get('city'))}\n"
-        f"Регион: {_clean(mod.get('region'))}\n"
-        f"Рейтинг: <b>{_clean(mod.get('rating', 0))}</b> · предупреждений: <b>{_clean(mod.get('warns_count', len(warns)))}</b>\n"
-        f"Онлайн: {_clean('да' if mod.get('online') else 'нет')} · смена: {_clean('да' if mod.get('on_shift') else 'нет')}\n"
-        f"Бан: {_clean('да' if mod.get('banned') else 'нет')}\n"
-        f"Права: {_clean(', '.join(map(str, perms)) or '—')}\n"
-        f"О себе: {_clean(mod.get('about'))}"
+        f"🆔 Telegram ID: <code>{_clean(mod.get('tg_id'))}</code>\n"
+        f"🎖 Роль: {_clean(mod.get('role_label') or mod.get('role'))}\n"
+        f"🏙 Город: {_clean(mod.get('city_name') or mod.get('city'))}\n"
+        f"🗺 Регион: {_clean(mod.get('region'))}\n"
+        f"⭐ Рейтинг: <b>{_clean(mod.get('rating', 0))}</b> · варнов: <b>{_clean(mod.get('warns_count', len(warns)))}</b>\n"
+        f"🟢 Онлайн: {_clean('да' if mod.get('online') else 'нет')} · смена: {_clean('да' if mod.get('on_shift') else 'нет')}\n"
+        f"⛔ Бан: {_clean('да' if mod.get('banned') else 'нет')}\n"
+        f"🔐 Права: {_clean(', '.join(map(str, perms)) or '—')}\n"
+        f"💬 О себе: {_clean(mod.get('about'))}"
     )
+    return format_panel("ПРОФИЛЬ МОДЕРАТОРА", body, "GDE.WTF · данные API")
 
 
 def _help() -> str:
-    return (
-        "🌐 <b>GDE.WTF · панель управления</b>\n\n"
+    body = (
         "<b>Просмотр</b>\n"
         "<code>!профиль q</code> · <code>!кто q</code> · <code>!статус q</code> · <code>!права q</code>\n"
         "<code>!варны q</code> · <code>!журнал [q] [кол-во]</code> · <code>!поиск слово</code>\n"
@@ -491,23 +490,23 @@ def _help() -> str:
         "<code>!ник новый_ник</code>, <code>!город city_id</code>, <code>!амб</code>, <code>!назначить</code>.\n"
         "Вместо q можно указать @username, Telegram ID или RND-код. Доступ определяется ролью и правами GDE.WTF."
     )
-
+    return format_panel("КОМАНДЫ GDE.WTF", body, "GDE.WTF · справочник")
 
 def _gdewtf_panel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👥 Модераторы", callback_data="gdepanel:mods"),
+        [InlineKeyboardButton(text="👥 Состав", callback_data="gdepanel:mods"),
          InlineKeyboardButton(text="🏙 Города", callback_data="gdepanel:cities")],
         [InlineKeyboardButton(text="🏆 Рейтинг", callback_data="gdepanel:top"),
          InlineKeyboardButton(text="📜 Журнал", callback_data="gdepanel:logs")],
-        [InlineKeyboardButton(text="🛰 Проверка API", callback_data="gdepanel:ping"),
-         InlineKeyboardButton(text="👤 Люди", callback_data="gdepanel:people")],
-        [InlineKeyboardButton(text="📖 Команды", callback_data="gdepanel:help")],
-        [InlineKeyboardButton(text="⚠️ Варн", callback_data="gdepanel:warn"),
-         InlineKeyboardButton(text="🧹 Снять варн", callback_data="gdepanel:clearwarn")],
-        [InlineKeyboardButton(text="🚫 Бан", callback_data="gdepanel:ban"),
-         InlineKeyboardButton(text="🔓 Разбан", callback_data="gdepanel:unban")],
-        [InlineKeyboardButton(text="👑 Назначить", callback_data="gdepanel:setmod"),
-         InlineKeyboardButton(text="❌ Снять с должности", callback_data="gdepanel:remove")],
+        [InlineKeyboardButton(text="🛰 Состояние API", callback_data="gdepanel:ping"),
+         InlineKeyboardButton(text="👤 Участники", callback_data="gdepanel:people")],
+        [InlineKeyboardButton(text="⚠️ Выдать варн", callback_data="gdepanel:warn"),
+         InlineKeyboardButton(text="↩️ Снять варн", callback_data="gdepanel:clearwarn")],
+        [InlineKeyboardButton(text="⛔ Заблокировать", callback_data="gdepanel:ban"),
+         InlineKeyboardButton(text="🔓 Разблокировать", callback_data="gdepanel:unban")],
+        [InlineKeyboardButton(text="➕ Назначить", callback_data="gdepanel:setmod"),
+         InlineKeyboardButton(text="➖ Снять", callback_data="gdepanel:remove")],
+        [InlineKeyboardButton(text="📖 Справка", callback_data="gdepanel:help")],
     ])
 
 # Short-lived permission cache: avoids an extra GDE.WTF API lookup on every command.
