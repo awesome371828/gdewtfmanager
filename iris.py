@@ -1018,9 +1018,9 @@ async def gdewtf_command(message: Message) -> None:
         "снятьварн", "снять-варн", "анварн", "unwarn",
         "снятьварны", "снять-варны", "warnclear",
     }
-    # Ban/unban endpoints resolve the supplied identifier themselves. Do not
-    # preflight GET /mod or /mods here: a blocked target may be hidden from
-    # directory reads, and that extra read can time out before the recovery POST.
+    # Mutation endpoints resolve the supplied identifier themselves.
+    # Avoid a redundant GET /mod before warn/ban writes: it can time out even
+    # though the direct mutation endpoint is healthy and accepts Telegram IDs.
     resolved_target_profile: dict[str, Any] | None = None
     if action in target_actions_for_resolution and rest and action not in {"бан", "ban", "разбан", "unban", "анбан"}:
         is_warn_index = action in {"снятьварн", "снять-варн", "анварн", "unwarn"} and rest[0].isdigit() and len(rest[0]) < 7
