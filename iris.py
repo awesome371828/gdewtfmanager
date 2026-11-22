@@ -1591,7 +1591,7 @@ async def gdewtf_command(message: Message) -> None:
             remove_q = rest[0]
             data = await _api(
                 "POST", "/mod/remove", body={"q": remove_q},
-                request_timeout=aiohttp.ClientTimeout(total=6.0, connect=1.5, sock_read=4.5),
+                request_timeout=aiohttp.ClientTimeout(total=1.2, connect=0.5, sock_read=0.7),
             )
             # Never chain a second slow request inside the Telegram update handler.
             # A timed-out write has an ambiguous outcome; report it honestly and do
