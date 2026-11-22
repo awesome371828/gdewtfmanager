@@ -611,13 +611,18 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn("_GDEWTF_AUTH_FAILURE_TTL = 2.5", self.source)
         self.assertIn("_GDEWTF_ACCESS_CACHE_TTL = 10.0", self.source)
 
-    def test_banned_designated_controller_can_only_recover_via_unban(self):
+    def test_banned_designated_controller_keeps_full_api_management_access(self):
         start = self.source.index("async def _gdewtf_authorize_locked(")
         end = self.source.index("\n\ndef _gdewtf_safe_answer", start)
         auth = self.source[start:end]
-        self.assertIn('is_unban_action = action in {"разбан", "unban", "анбан"}', auth)
-        self.assertIn('if not (is_designated_controller and is_unban_action):', auth)
-        self.assertIn("Для восстановления попроси второго контроллера проекта выполнить разбан.", auth)
+        self.assertIn("is_designated_controller = _gdewtf_is_designated_controller(mod)", auth)
+        self.assertIn(
+            '(mod.get("banned") is True or mod.get("active") is False) and not is_designated_controller',
+            auth,
+        )
+        self.assertIn("otherwise a self-ban deadlocks", auth)
+        self.assertIn('data = await _api("POST", "/ban", body={"q": rest[0], "ban": False})', self.source)
+        self.assertIn('data = await _api("POST", "/warn/clear", body={"q": q})', self.source)
 
     def test_gdewtf_circuit_breaker_does_not_extend_open_state_on_late_failures(self):
         start = self.source.index("class _GDEWTFAPICircuitBreaker")
