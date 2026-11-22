@@ -61,9 +61,9 @@ class DurableActivitySpoolTests(unittest.TestCase):
 class VisualAndSchemaTests(unittest.TestCase):
     def test_panel_has_consistent_structure(self):
         rendered = pear_core.format_panel("ЗАГОЛОВОК", "Тело", "Футер")
-        self.assertIn("🛡️ <b>ЗАГОЛОВОК</b>", rendered)
+        self.assertIn("✦ <b>ЗАГОЛОВОК</b>", rendered)
         self.assertIn("Тело", rendered)
-        self.assertIn("<blockquote>— Футер</blockquote>", rendered)
+        self.assertIn("<blockquote>↳ Футер</blockquote>", rendered)
 
     def test_schema_check_reports_missing_table_and_columns(self):
         class FakeQuery:
