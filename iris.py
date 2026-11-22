@@ -719,7 +719,13 @@ def _gdewtf_is_owner_or_chief(profile: dict[str, Any]) -> bool:
 
 
 async def _gdewtf_authorize(user_id: int, action: str, username: str | None = None) -> tuple[bool, str]:
-    """Serialize per-user lookups and briefly dampen repeated upstream failures."""
+    """Authorize configured project controllers locally; resolve other moderators via GDE.WTF."""
+    # BOT_OWNER_ID is trusted deployment configuration, not a username supplied
+    # by Telegram. Keep the owner able to use every command (including recovery
+    # and self-target operations) when their own GDE.WTF profile is banned or
+    # the upstream /mod endpoint is unavailable.
+    if str(user_id) == str(OWNER_ID) or str(user_id) in _GDEWTF_CONTROLLER_TELEGRAM_IDS:
+        return True, ""
     lock = _GDEWTF_AUTH_LOCKS.setdefault(user_id, asyncio.Lock())
     async with lock:
         failed = _GDEWTF_AUTH_FAILURE_CACHE.get(user_id)
@@ -928,14 +934,14 @@ async def gdewtf_command(message: Message) -> None:
     if not message.from_user:
         return
     text = (message.text or "").strip()
-    # A reply to the command author's own message is not a moderation target.
-    # In particular, replying to "!варн" itself must not trigger an API lookup.
+    # Any explicit reply is a target, including the command author's own
+    # account: self-management/recovery commands are intentionally supported.
     reply_user = (
         message.reply_to_message.from_user
         if message.reply_to_message and message.reply_to_message.from_user
         else None
     )
-    has_reply_target = bool(reply_user and reply_user.id != message.from_user.id)
+    has_reply_target = reply_user is not None
     # Reject incomplete target-required commands locally, before authorization.
     if re.fullmatch(r"!\s*(?:варн|warn|бан|ban)\s*", text, re.IGNORECASE) and not has_reply_target:
         await _gdewtf_safe_answer(
@@ -985,11 +991,7 @@ async def gdewtf_command(message: Message) -> None:
 
     # A reply is an unambiguous target: use the sender's Telegram ID and let
     # GDE.WTF resolve it through the project's existing Telegram account link.
-    replied_user = (
-        reply_user
-        if reply_user and reply_user.id != message.from_user.id
-        else None
-    )
+    replied_user = reply_user
     target_actions = {
         "профиль", "who", "mod", "варны", "кто", "статус", "права",
         "варн", "warn", "снять", "modremove", "снятьварн", "снять-варн", "анварн", "unwarn",
@@ -1013,10 +1015,8 @@ async def gdewtf_command(message: Message) -> None:
     # numeric ID, and RND-XXXX work the same way across reads and mutations.
     target_actions_for_resolution = {
         "профиль", "who", "mod", "варны", "кто", "статус", "права",
-        "варн", "warn", "снять", "modremove", "снятьварн", "снять-варн", "анварн", "unwarn",
-        "снятьварны", "снять-варны", "warnclear", "ник", "nick", "город", "city",
-        "амб", "amb", "rgov", "регион", "региональный", "назначить", "modset",
-        "бан", "ban", "разбан", "unban", "анбан",
+        "снятьварн", "снять-варн", "анварн", "unwarn",
+        "снятьварны", "снять-варны", "warnclear",
     }
     # Ban/unban endpoints resolve the supplied identifier themselves. Do not
     # preflight GET /mod or /mods here: a blocked target may be hidden from
