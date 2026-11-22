@@ -602,6 +602,38 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn("reply_markup=_gdewtf_panel_keyboard()", callback)
 
 
+    def test_gdewtf_auth_lookups_are_serialized_and_outage_damped(self):
+        auth_start = self.source.index("async def _gdewtf_authorize(")
+        auth_end = self.source.index("async def _gdewtf_safe_answer", auth_start)
+        auth = self.source[auth_start:auth_end]
+        self.assertIn("async with lock:", auth)
+        self.assertIn("_GDEWTF_AUTH_FAILURE_CACHE", auth)
+        self.assertIn("_GDEWTF_AUTH_FAILURE_TTL = 2.5", self.source)
+        self.assertIn("_GDEWTF_ACCESS_CACHE_TTL = 10.0", self.source)
+
+    def test_gdewtf_circuit_breaker_does_not_extend_open_state_on_late_failures(self):
+        start = self.source.index("class _GDEWTFAPICircuitBreaker")
+        end = self.source.index("_GDEWTF_API_CIRCUIT =", start)
+        breaker = self.source[start:end]
+        self.assertIn("if self.open_until > now:", breaker)
+        self.assertIn("Several requests may already be in flight", breaker)
+
+    def test_moderation_success_messages_use_the_shared_modern_panel(self):
+        for heading in (
+            '"БЛОКИРОВКА ВЫДАНА"',
+            '"УЧАСТНИК ИСКЛЮЧЁН"',
+            '"ПРЕДУПРЕЖДЕНИЕ ВЫДАНО"',
+            '"ОГРАНИЧЕНИЕ ВЫДАНО"',
+            '"ВРЕМЕННАЯ БЛОКИРОВКА"',
+            '"АВТОМАТИЧЕСКАЯ БЛОКИРОВКА"',
+            '"ПОВЫШЕНИЕ РАНГА"',
+            '"ПОНИЖЕНИЕ РАНГА"',
+        ):
+            self.assertIn(heading, self.source)
+        core = (ROOT / "pear_core.py").read_text(encoding="utf-8")
+        self.assertIn('return f"✦ <b>{title}</b>', core)
+        self.assertIn("<blockquote>↳ {footer}</blockquote>", core)
+
     def test_postgres_adapter_reuses_bounded_connections(self):
         adapter = POSTGRES_ADAPTER.read_text(encoding="utf-8")
         requirements = REQUIREMENTS.read_text(encoding="utf-8")
