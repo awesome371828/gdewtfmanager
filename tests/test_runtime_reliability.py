@@ -49,8 +49,24 @@ class RuntimeReliabilityRegressionTests(unittest.TestCase):
         self.assertIn(guard, body)
         self.assertLess(body.index(guard), body.index("await _gdewtf_authorize("))
         self.assertIn("not has_reply_target", body)
-        self.assertIn("reply_user.id != message.from_user.id", body)
+        self.assertIn("has_reply_target = reply_user is not None", body)
+        self.assertIn("replied_user = reply_user", body)
         self.assertLess(body.index("has_reply_target"), body.index("await _gdewtf_authorize("))
+
+    def test_configured_owner_bypasses_upstream_profile_lookup(self):
+        start = SOURCE.index("async def _gdewtf_authorize(")
+        end = SOURCE.index("async def _gdewtf_authorize_locked", start)
+        body = SOURCE[start:end]
+        self.assertIn('str(user_id) == str(OWNER_ID)', body)
+        self.assertIn('str(user_id) in _GDEWTF_CONTROLLER_TELEGRAM_IDS', body)
+        self.assertLess(body.index("return True, \"\""), body.index("lock = _GDEWTF_AUTH_LOCKS.setdefault"))
+
+    def test_warn_and_ban_mutations_skip_slow_target_prelookup(self):
+        start = SOURCE.index("target_actions_for_resolution = {")
+        end = SOURCE.index("# Normalize target commands", start) if "# Normalize target commands" in SOURCE[start:] else start + 1200
+        body = SOURCE[start:end]
+        self.assertNotIn('"варн", "warn"', body)
+        self.assertNotIn('"бан", "ban"', body)
 
     def test_mod_remove_timeout_does_not_chain_a_slow_verification_request(self):
         start = SOURCE.index('elif action in {"снять", "modremove"}:')
