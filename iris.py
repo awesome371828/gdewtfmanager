@@ -3335,29 +3335,29 @@ async def profile(message: Message) -> None:
     level_name = "Новичок" if messages < 25 else "Участник" if messages < 100 else "Активный" if messages < 500 else "Легенда чата"
     next_goal = next((goal for goal in (25, 100, 500, 1000) if messages < goal), None)
     progress = f"📈 До следующего рубежа: <b>{next_goal - messages}</b> сообщ." if next_goal else "✨ Достигнут высокий рубеж активности!"
-    await message.answer(
-        "👤 <b>МОЙ ПРОФИЛЬ</b>\n"
-        "━━━━━━━━━━━━━━━━━━\n"
+    await message.answer(format_panel(
+        "МОЙ ПРОФИЛЬ",
         f"🪪 {profile_link(message.from_user.id, message.from_user.full_name, message.from_user.username)}\n"
-        "━━━━━━━━━━━━━━━━━━\n"
-        f"💬 <b>Сообщений:</b> {messages:,}\n"
-        f"🏅 <b>Ранг:</b> {role_name(rank)} · <code>{rank}/5</code>\n"
-        f"✨ <b>Уровень активности:</b> {level_name}\n"
-        f"⚠️ <b>Предупреждений:</b> {warns}\n"
+        f"💬 Сообщений: <b>{messages:,}</b>\n"
+        f"🏅 Ранг: <b>{role_name(rank)}</b> · <code>{rank}/5</code>\n"
+        f"✨ Уровень: <b>{level_name}</b>\n"
+        f"⚠️ Активных предупреждений: <b>{warns}</b>\n"
         f"{progress}\n\n"
-        "📚 Команды: <code>кто я</code> · <code>топ</code> · <code>активность</code>".replace(",", " ")
-    )
+        "Команды: <code>кто я</code> · <code>топ</code> · <code>активность</code>".replace(",", " "),
+        "Профиль участника · данные этого чата",
+    ))
 
 @router.message(Command("time"))
 @router.message(F.text.regexp(r"(?i)^[.!/]?(?:время|дата)(?:\s|$)"))
 async def moscow_time_cmd(message: Message) -> None:
     now = moscow_now()
-    await message.answer(
-        "🕒 <b>Московское время</b>\n"
-        f"{now.strftime('%d.%m.%Y')} · <b>{now.strftime('%H:%M:%S')} МСК</b>\n"
-        "Часовой пояс: <code>Europe/Moscow</code> (UTC+3)\n"
-        "Время обновляется при каждом вызове команды."
-    )
+    await message.answer(format_panel(
+        "МОСКОВСКОЕ ВРЕМЯ",
+        f"📅 {now.strftime('%d.%m.%Y')}\n"
+        f"🕒 <b>{now.strftime('%H:%M:%S')} МСК</b>\n"
+        "Часовой пояс: <code>Europe/Moscow</code> · UTC+3",
+        "Время обновляется при каждом запросе",
+    ))
 
 
 @router.message(F.text.in_({"⚠️ Мои варны"}))
@@ -4590,13 +4590,16 @@ async def info_cmd(message: Message) -> None:
         status = str(member.status).replace("ChatMemberStatus.", "")
     except Exception:
         status = "не состоит / неизвестно"
-    await message.answer(
-        f"👤 <b>Информация</b>\nИмя: {mention(target[0], target[1])}\n"
-        f"ID: <code>{target[0]}</code>\nСтатус: <code>{status}</code>\n"
-        f"Варны: <b>{int(user.get('warns', 0))}</b>\n"
-        f"Ранг: <b>{int(user.get('rank', 0))}</b>\n"
-        f"Сообщений: <b>{int(user.get('messages', 0))}</b>"
-    )
+    await message.answer(format_panel(
+        "ИНФОРМАЦИЯ ОБ УЧАСТНИКЕ",
+        f"👤 Имя: {mention(target[0], target[1])}\n"
+        f"🆔 Telegram ID: <code>{target[0]}</code>\n"
+        f"📍 Статус: <code>{escape(status)}</code>\n"
+        f"⚠️ Предупреждения: <b>{int(user.get('warns', 0))}</b>\n"
+        f"🏅 Ранг: <b>{int(user.get('rank', 0))} · {role_name(int(user.get('rank', 0) or 0))}</b>\n"
+        f"💬 Сообщений: <b>{int(user.get('messages', 0))}</b>",
+        "Профиль участника · данные этого чата",
+    ))
 
 # Snapshot from the user's Iris leaderboard (14 Oct 2026, chat XVII).
 # The observed GDE.WTF counters at that moment are subtracted, so only newer messages
