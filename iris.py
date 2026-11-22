@@ -46,7 +46,9 @@ from aiogram.types import (
     ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, MenuButtonWebApp,
 )
 from postgres_adapter import PostgresClient, create_client_from_env
-from gdewtf_reliability import PersistentUpdateDeduplicationMiddleware, LatencyProfiler
+from gdewtf_reliability import (
+    PersistentUpdateDeduplicationMiddleware, LatencyProfiler, ensure_reliability_schema,
+)
 
 try:
     import fcntl
@@ -8529,6 +8531,8 @@ async def main() -> None:
     # manually, not repeated during host restarts/deployments.
     if db is not None:
         try:
+            await asyncio.to_thread(ensure_reliability_schema, db)
+            log.info("Persistent Telegram update journal schema is ready")
             schema_problems = await asyncio.to_thread(check_schema, db)
             _SCHEMA_PROBLEMS = list(schema_problems)
             if schema_problems:
