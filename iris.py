@@ -2711,7 +2711,7 @@ async def is_owner(user_id: int) -> bool:
     return user_id == OWNER_ID
 
 _CHAT_MEMBER_CACHE: dict[tuple[int, int], tuple[Any | None, float]] = {}
-_CHAT_MEMBER_CACHE_TTL = 90.0
+_CHAT_MEMBER_CACHE_TTL = 60.0
 _CHAT_MEMBER_FAILURE_TTL = 2.0
 _CHAT_MEMBER_REQUEST_TIMEOUT = 1.5
 _CHAT_MEMBER_LOCKS: dict[tuple[int, int], asyncio.Lock] = {}
