@@ -848,6 +848,10 @@ async def _gdewtf_safe_answer(message: Message, *args: Any, **kwargs: Any) -> bo
     """Send one bounded reply; never retry an ambiguous sendMessage timeout."""
     # Telegram may have accepted sendMessage even if the response was lost.
     # Retrying here can create duplicate replies, so fail fast and log instead.
+    # Keep every API response in the same visual card; already formatted cards
+    # from the profile/help builders are left untouched.
+    if args and isinstance(args[0], str) and not args[0].startswith("✦ <b>"):
+        args = (format_panel("ОТВЕТ GDE.WTF", args[0], "GDE.WTF · внешний API"), *args[1:])
     kwargs["request_timeout"] = 2.0
     try:
         await message.answer(*args, **kwargs)
