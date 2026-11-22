@@ -636,7 +636,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
 
     def test_gdewtf_ban_and_unban_skip_target_prelookup_and_use_recovery_timeout(self):
         start = self.source.index("# Ban/unban endpoints resolve the supplied identifier themselves.")
-        end = self.source.index("resolved_target_profile: dict[str, Any] | None = None", start)
+        end = self.source.index("\n        is_warn_index =", start)
         resolver = self.source[start:end]
         self.assertIn('action not in {"бан", "ban", "разбан", "unban", "анбан"}', resolver)
         self.assertIn('total=4.0, connect=0.8, sock_read=3.0', self.source)
