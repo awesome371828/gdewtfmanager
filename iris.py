@@ -707,7 +707,9 @@ async def _gdewtf_authorize(user_id: int, action: str, username: str | None = No
     elif cached:
         _GDEWTF_ACCESS_CACHE.pop(user_id, None)
 
-    timeout = aiohttp.ClientTimeout(total=1.4, connect=0.6, sock_read=1.0)
+    # Authorization must fail quickly when the external service is unhealthy;
+    # the circuit breaker prevents every command from paying this timeout.
+    timeout = aiohttp.ClientTimeout(total=0.9, connect=0.4, sock_read=0.65)
 
     async def lookup(query: str) -> dict[str, Any]:
         _GDEWTF_API_CACHE.pop(_gdewtf_cache_key("/mod", {"q": query}), None)
@@ -1505,21 +1507,18 @@ async def gdewtf_command(message: Message) -> None:
                 await _gdewtf_safe_answer(message, "Формат: <code>!снять @username</code>")
                 return
             remove_q = rest[0]
-            data = await _api("POST", "/mod/remove", body={"q": remove_q})
-            # A write can commit on GDE.WTF while its HTTP response times out.
-            # Verify state before telling the operator the action failed.
+            data = await _api(
+                "POST", "/mod/remove", body={"q": remove_q},
+                request_timeout=aiohttp.ClientTimeout(total=1.2, connect=0.5, sock_read=0.85),
+            )
+            # Never chain a second slow request inside the Telegram update handler.
+            # A timed-out write has an ambiguous outcome; report it honestly and do
+            # not retry automatically because the first request may have committed.
             if not data.get("ok") and data.get("error") == "api_unavailable" and data.get("detail") == "timeout":
-                _gdewtf_invalidate_api_cache()
-                verify = await _api(
-                    "GET", "/mod", params={"q": remove_q},
-                    request_timeout=aiohttp.ClientTimeout(total=3, connect=1.5, sock_read=2),
+                log_gdewtf.warning(
+                    "GDE.WTF /mod/remove outcome is unknown after timeout; automatic retry suppressed (q=%r)",
+                    remove_q,
                 )
-                if not verify.get("ok") and str(verify.get("error") or "") == "not_found":
-                    data = {"ok": True, "pub": remove_q, "mod": {}, "verified_after_timeout": True}
-                elif verify.get("ok") and isinstance(verify.get("mod"), dict):
-                    # Still present: the removal did not take effect (or the API
-                    # has not propagated it yet), so retain the honest timeout.
-                    log_gdewtf.warning("GDE.WTF /mod/remove timed out and verification still finds q=%r", remove_q)
         elif action in {"бан", "ban"}:
             if not rest:
                 await _gdewtf_safe_answer(message, "Формат: <code>!бан @username [причина]</code>")
