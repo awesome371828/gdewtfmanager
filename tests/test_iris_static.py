@@ -597,10 +597,11 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         helper = self.source[helper_start:helper_end]
         self.assertIn("_GDEWTF_CONTROLLER_CODES", helper)
         self.assertIn("return bool(values & _GDEWTF_CONTROLLER_CODES)", helper)
+        self.assertIn("_GDEWTF_CONTROLLER_TELEGRAM_IDS", helper)
         auth_start = self.source.index("async def _gdewtf_authorize(")
         auth_end = self.source.index("async def _gdewtf_safe_answer", auth_start)
         auth = self.source[auth_start:auth_end]
-        self.assertIn("_gdewtf_is_designated_controller(mod)", auth)
+        self.assertIn("_gdewtf_is_designated_controller(mod, user_id)", auth)
         self.assertIn("if action in _GDEWTF_READONLY_ACTIONS:", auth)
         self.assertIn("_GDEWTF_ACCESS_CACHE[user_id]", auth)
         callback_start = self.source.index('@gdewtf_router.callback_query(F.data.startswith("gdepanel:"))')
@@ -623,7 +624,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         start = self.source.index("async def _gdewtf_authorize_locked(")
         end = self.source.index("\n\ndef _gdewtf_safe_answer", start)
         auth = self.source[start:end]
-        self.assertIn("is_designated_controller = _gdewtf_is_designated_controller(mod)", auth)
+        self.assertIn("is_designated_controller = _gdewtf_is_designated_controller(mod, user_id)", auth)
         self.assertIn(
             '(mod.get("banned") is True or mod.get("active") is False) and not is_designated_controller',
             auth,
