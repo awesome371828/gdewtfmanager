@@ -3164,6 +3164,7 @@ async def start(message: Message) -> None:
             "Открой кнопки под этим сообщением, чтобы пользоваться инструментами бота."
         )
 
+    text = format_panel("ДОБРО ПОЖАЛОВАТЬ", text, "GDE.WTF · управление сообществом")
     # Send exactly one visible message, with the inline keyboard attached.
     # Do not send a temporary ReplyKeyboardRemove message: Telegram displays
     # it briefly even if we delete it immediately.
@@ -3199,7 +3200,7 @@ async def help_command(message: Message) -> None:
         "🌐 <a href=\"https://gde.wtf/\">Открыть сайт проекта GDE.WTF</a>"
     )
     await message.answer(
-        help_text,
+        format_panel("КОМАНДЫ И ВОЗМОЖНОСТИ", help_text, "GDE.WTF · справочник"),
         reply_markup=main_keyboard(user_id, message.chat.type, is_privileged),
         disable_web_page_preview=True,
     )
@@ -3207,11 +3208,15 @@ async def help_command(message: Message) -> None:
 @router.message(F.text.in_({"📋 Меню", "Меню"}))
 async def menu_button(message: Message) -> None:
     await message.answer(
-        "👋 <b>Главное меню GDE.WTF</b>\n\n"
-        "➕ Добавить в чат — выберите группу и подтвердите права бота.\n"
-        "💠 Профиль — ваша статистика и предупреждения.\n"
-        "🔗 Команды — список доступных команд.\n"
-        "🛠 Установка — понятная инструкция по подключению.",
+        format_panel(
+            "ГЛАВНОЕ МЕНЮ",
+            "👋 Управление сообществом GDE.WTF.\n\n"
+            "➕ Добавить в чат — подключить бота к группе.\n"
+            "💠 Профиль — статистика и предупреждения.\n"
+            "🔗 Команды — список возможностей.\n"
+            "🛠 Установка — инструкция по подключению.",
+            "GDE.WTF · навигация",
+        ),
         reply_markup=main_keyboard(
             message.from_user.id if message.from_user else None,
             message.chat.type,
@@ -3250,13 +3255,16 @@ async def add_to_chat(message: Message) -> None:
 @router.message(F.text == "🛠 Установка")
 async def installation_help(message: Message) -> None:
     await message.answer(
-        "🛠 <b>Установка GDE.WTF — пошагово</b>\n\n"
-        "<b>1.</b> Нажмите «➕ Добавить в чат» в главном меню.\n"
-        "<b>2.</b> Выберите нужную группу в Telegram и подтвердите добавление.\n"
-        "<b>3.</b> Откройте настройки группы → Администраторы → Добавить администратора → GDE.WTF.\n"
-        "<b>4.</b> Включите необходимые права: удаление сообщений, блокировка/ограничение участников. Для команд «-чат» и «+чат» нужны права управления чатом.\n"
-        "<b>5.</b> Проверьте в группе: <code>/admins</code>, <code>-смс 10</code>, <code>-чат</code> и <code>+чат</code>.\n\n"
-        "Если нужна только статистика, не выдавайте права модерации. Команды доступны в группе через меню «/».",
+        format_panel(
+            "ПОДКЛЮЧЕНИЕ БОТА",
+            "<b>1.</b> Нажмите «➕ Добавить в чат» в главном меню.\n"
+            "<b>2.</b> Выберите группу в Telegram и подтвердите добавление.\n"
+            "<b>3.</b> Откройте настройки группы → Администраторы → GDE.WTF.\n"
+            "<b>4.</b> Выдайте только необходимые права: удаление сообщений, блокировка и ограничение участников. Для «-чат» и «+чат» потребуется управление чатом.\n"
+            "<b>5.</b> Проверьте команды: <code>/admins</code>, <code>-смс 10</code>, <code>-чат</code>, <code>+чат</code>.\n\n"
+            "Для статистики права модерации не требуются.",
+            "GDE.WTF · настройка",
+        ),
         reply_markup=main_keyboard(
             message.from_user.id if message.from_user else None,
             message.chat.type,
