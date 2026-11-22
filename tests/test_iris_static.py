@@ -544,6 +544,8 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn("async def _gdewtf_api_guarded(", self.source)
         self.assertIn("GDE.WTF circuit breaker opened", self.source)
         self.assertIn("asyncio.shield(task)", self.source)
+        self.assertIn("_GDEWTF_BREAKER_OPEN_UNTIL > time.monotonic()", self.source)
+        self.assertIn("except asyncio.CancelledError:", self.source)
         self.assertIn('success = data.get("success")', self.source)
         self.assertIn("if isinstance(nested, dict):", self.source)
         self.assertIn("elif isinstance(nested, list):", self.source)
