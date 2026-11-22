@@ -618,7 +618,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         auth = self.source[auth_start:auth_end]
         self.assertIn("async with lock:", auth)
         self.assertIn("_GDEWTF_AUTH_FAILURE_CACHE", auth)
-        self.assertIn("_GDEWTF_AUTH_FAILURE_TTL = 2.5", self.source)
+        self.assertIn("_GDEWTF_AUTH_FAILURE_TTL = 8.0", self.source)
         self.assertIn("_GDEWTF_ACCESS_CACHE_TTL = 10.0", self.source)
 
     def test_banned_designated_controller_keeps_full_api_management_access(self):
@@ -734,6 +734,11 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         auth = self.source[auth_start:auth_end]
         self.assertNotIn('_GDEWTF_API_CACHE.pop(_gdewtf_cache_key("/mods", {}), None)', auth)
         self.assertIn('_GDEWTF_API_CACHE_TTL = {"/mods": 4.0', self.source)
+        self.assertIn('"/mod": 10.0', self.source)
+        auth_start = self.source.index("async def _gdewtf_authorize_locked(")
+        auth_end = self.source.index("\n\ndef _gdewtf_is_designated_controller", auth_start)
+        auth = self.source[auth_start:auth_end]
+        self.assertNotIn('_GDEWTF_API_CACHE.pop(_gdewtf_cache_key("/mod", {"q": query}), None)', auth)
         self.assertIn("Keep the short-lived /mods snapshot", auth)
 
     def test_external_api_latency_is_logged_without_retrying_ambiguous_writes(self):
