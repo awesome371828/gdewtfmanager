@@ -155,10 +155,16 @@ class _GDEWTFAPICircuitBreaker:
         self.probe_in_flight = False
 
     def failure(self) -> None:
+        now = time.monotonic()
+        # Several requests may already be in flight when the threshold is hit.
+        # Count only the transition into OPEN once; late failures must not keep
+        # extending the cooldown or flood the logs.
+        if self.open_until > now:
+            return
         self.probe_in_flight = False
         self.failures += 1
         if self.failures >= self.threshold:
-            self.open_until = time.monotonic() + self.cooldown
+            self.open_until = now + self.cooldown
             log_gdewtf.warning(
                 "GDE.WTF API circuit opened for %.1fs after %s consecutive transport failures",
                 self.cooldown, self.failures,
@@ -506,7 +512,12 @@ def _gdewtf_panel_keyboard() -> InlineKeyboardMarkup:
 
 # Short-lived permission cache: avoids an extra GDE.WTF API lookup on every command.
 _GDEWTF_ACCESS_CACHE: dict[int, tuple[float, dict[str, Any]]] = {}
-_GDEWTF_ACCESS_CACHE_TTL = 3.0
+# A verified profile is reused briefly to avoid making every command depend on
+# the external API. Revocations still take effect within this short window.
+_GDEWTF_ACCESS_CACHE_TTL = 10.0
+_GDEWTF_AUTH_LOCKS: dict[int, asyncio.Lock] = {}
+_GDEWTF_AUTH_FAILURE_CACHE: dict[int, tuple[float, str]] = {}
+_GDEWTF_AUTH_FAILURE_TTL = 2.5
 _GDEWTF_KNOWN_PERMS = {
     "events", "marks", "users", "beta", "pvo", "maint", "stats", "support", "notice"
 }
@@ -690,6 +701,26 @@ def _gdewtf_is_owner_or_chief(profile: dict[str, Any]) -> bool:
 
 
 async def _gdewtf_authorize(user_id: int, action: str, username: str | None = None) -> tuple[bool, str]:
+    """Serialize per-user lookups and briefly dampen repeated upstream failures."""
+    lock = _GDEWTF_AUTH_LOCKS.setdefault(user_id, asyncio.Lock())
+    async with lock:
+        failed = _GDEWTF_AUTH_FAILURE_CACHE.get(user_id)
+        if failed and time.monotonic() - failed[0] < _GDEWTF_AUTH_FAILURE_TTL:
+            return False, failed[1]
+        result = await _gdewtf_authorize_locked(user_id, action, username)
+        if not result[0] and result[1].startswith("⚠️"):
+            _GDEWTF_AUTH_FAILURE_CACHE[user_id] = (time.monotonic(), result[1])
+        else:
+            _GDEWTF_AUTH_FAILURE_CACHE.pop(user_id, None)
+        if len(_GDEWTF_AUTH_FAILURE_CACHE) > 2000:
+            cutoff = time.monotonic() - _GDEWTF_AUTH_FAILURE_TTL
+            for cached_id, (stamp, _) in list(_GDEWTF_AUTH_FAILURE_CACHE.items()):
+                if stamp < cutoff:
+                    _GDEWTF_AUTH_FAILURE_CACHE.pop(cached_id, None)
+        return result
+
+
+async def _gdewtf_authorize_locked(user_id: int, action: str, username: str | None = None) -> tuple[bool, str]:
     """Resolve identity quickly, caching only a successfully verified profile briefly."""
     mod: dict[str, Any] | None = None
     api_errors: list[str] = []
@@ -3893,15 +3924,16 @@ async def mute_cmd(message: Message) -> None:
               f"duration={duration_label}; reason={reason}; moderator={message.from_user.id if message.from_user else 0}")
         if until:
             when = format_moscow_time(until)
-            await message.answer(
-                "🔇 <b>Мут выдан</b>\n\n"
-                f"👤 Участник: {mention(target[0], target[1])}\n"
+            await message.answer(format_panel(
+                "ОГРАНИЧЕНИЕ ВЫДАНО",
+                f"🔇 Участник: {mention(target[0], target[1])}\n"
                 f"⏱ Срок: <b>{escape(duration_label or 'указанный срок')}</b>\n"
                 f"📝 Причина: {reason}\n"
                 f"👮 Модератор: {actor}\n"
                 f"🕒 Выдан: {format_moscow_time(issued_at)}\n"
-                f"⌛ Истекает: {when}"
-            )
+                f"⌛ Истекает: {when}",
+                "Модерация · действие выполнено",
+            ))
         else:
             await message.answer(format_panel(
                 "ОГРАНИЧЕНИЕ ВЫДАНО",
@@ -4261,9 +4293,12 @@ async def warn_cmd(message: Message) -> None:
             await bot.ban_chat_member(message.chat.id, target[0])
             audit(message.chat.id, message.from_user.id if message.from_user else 0, "auto_ban", target[0],
                   f"3 active warnings in 7 days; reason={reason}")
-            await message.answer(
-                f"⛔ {mention(target[0], target[1])} забанен автоматически: 3 предупреждения за последние 7 дней."
-            )
+            await message.answer(format_panel(
+                "АВТОМАТИЧЕСКАЯ БЛОКИРОВКА",
+                f"⛔ Участник: {mention(target[0], target[1])}\n"
+                "Основание: <b>3 действующих предупреждения за 7 дней</b>.",
+                "Автомодерация · порог предупреждений достигнут",
+            ))
         except Exception as exc:
             await safe_error(message, exc)
 
@@ -6737,11 +6772,15 @@ async def temporary_ban_cmd(message: Message) -> None:
         audit(message.chat.id, message.from_user.id if message.from_user else 0, "tempban", target[0],
               f"duration={duration_label}; reason={reason}; until={until.isoformat()}")
         actor = mention(message.from_user.id, message.from_user.full_name) if message.from_user else "модератор"
-        await message.answer(
-            f"⛔ {mention(target[0], target[1])} временно забанен на <b>{escape(duration_label)}</b>.\n"
-            f"Причина: <b>{escape(reason[:300])}</b>\n"
-            f"⏳ До: <code>{format_moscow_time(until)}</code>\n👮 Модератор: {actor}."
-        )
+        await message.answer(format_panel(
+            "ВРЕМЕННАЯ БЛОКИРОВКА",
+            f"⛔ Участник: {mention(target[0], target[1])}\n"
+            f"⏱ Срок: <b>{escape(duration_label)}</b>\n"
+            f"📝 Причина: <b>{escape(reason[:300])}</b>\n"
+            f"⏳ До: <code>{format_moscow_time(until)}</code>\n"
+            f"👮 Модератор: {actor}.",
+            "Модерация · действие выполнено",
+        ))
     except Exception as exc:
         await safe_error(message, exc)
 
