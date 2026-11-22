@@ -906,7 +906,15 @@ async def gdewtf_command(message: Message) -> None:
         return
 
     if parts[1].lower() in {"панель", "panel", "меню"}:
-        await _gdewtf_safe_answer(message, "🌐 <b>Панель управления GDE.WTF</b>\nВыбери раздел. Для команд над конкретным человеком можно отвечать на его сообщение.", reply_markup=_gdewtf_panel_keyboard())
+        await _gdewtf_safe_answer(
+            message,
+            format_panel(
+                "ПАНЕЛЬ GDE.WTF",
+                "Выбери раздел ниже. Для действий над конкретным модератором можно ответить на его сообщение.",
+                "GDE.WTF · управление командой",
+            ),
+            reply_markup=_gdewtf_panel_keyboard(),
+        )
         return
 
     action = parts[1].lower()
