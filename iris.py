@@ -119,7 +119,7 @@ except ValueError:
 # Bound ordinary API reads so a degraded upstream cannot freeze a command for
 # several seconds. Endpoints that mutate data or authorize privileged actions
 # pass an explicit, larger timeout at the call site.
-_TIMEOUT = aiohttp.ClientTimeout(total=8.0, connect=2.0, sock_read=6.0)
+_TIMEOUT = aiohttp.ClientTimeout(total=4.0, connect=1.0, sock_read=3.0)
 # Reuse keep-alive connections to avoid a fresh DNS/TCP/TLS handshake on every
 # command. The API session is closed cleanly with the bot during shutdown.
 _API_SESSION: aiohttp.ClientSession | None = None
@@ -803,7 +803,7 @@ async def _gdewtf_authorize_locked(user_id: int, action: str, username: str | No
         # The cache is invalidated after successful mutations and expires quickly.
         directory = await _api(
             "GET", "/mods",
-            request_timeout=aiohttp.ClientTimeout(total=5.0, connect=1.5, sock_read=4.0),
+            request_timeout=aiohttp.ClientTimeout(total=2.5, connect=0.8, sock_read=2.0),
         )
         if not directory.get("ok"):
             transport_failure = directory
@@ -882,7 +882,7 @@ async def _gdewtf_safe_answer(message: Message, *args: Any, **kwargs: Any) -> bo
     # from the profile/help builders are left untouched.
     if args and isinstance(args[0], str) and not args[0].startswith("✦ <b>"):
         args = (format_panel("ОТВЕТ GDE.WTF", args[0], "GDE.WTF · внешний API"), *args[1:])
-    kwargs["request_timeout"] = 8.0
+    kwargs["request_timeout"] = 4.0
     send_started = time.monotonic()
     try:
         await message.answer(*args, **kwargs)
@@ -1488,7 +1488,7 @@ async def gdewtf_command(message: Message) -> None:
                 _gdewtf_invalidate_api_cache()
                 verify = await _api(
                     "GET", "/mod", params={"q": q},
-                    request_timeout=aiohttp.ClientTimeout(total=3, connect=1.5, sock_read=2),
+                    request_timeout=aiohttp.ClientTimeout(total=1.5, connect=0.5, sock_read=1.0),
                 )
                 verify_mod = verify.get("mod") if verify.get("ok") and isinstance(verify.get("mod"), dict) else {}
                 after_count_known = bool(
@@ -1816,7 +1816,7 @@ else:
 # Bound ordinary Telegram API calls so a stalled send cannot block a command
 # for 6–7 seconds. Keep polling's transport timeout longer than Telegram's
 # 25-second long-poll wait; otherwise the session default can abort every poll.
-_TELEGRAM_API_TIMEOUT = 8
+_TELEGRAM_API_TIMEOUT = 4
 _TELEGRAM_POLLING_REQUEST_TIMEOUT = 35
 
 class LowLatencyBot(Bot):
@@ -2711,12 +2711,13 @@ async def is_owner(user_id: int) -> bool:
     return user_id == OWNER_ID
 
 _CHAT_MEMBER_CACHE: dict[tuple[int, int], tuple[Any | None, float]] = {}
-_CHAT_MEMBER_CACHE_TTL = 60.0
-_CHAT_MEMBER_FAILURE_TTL = 1.5
-_CHAT_MEMBER_REQUEST_TIMEOUT = 3.0
+_CHAT_MEMBER_CACHE_TTL = 90.0
+_CHAT_MEMBER_FAILURE_TTL = 2.0
+_CHAT_MEMBER_REQUEST_TIMEOUT = 1.5
+_CHAT_MEMBER_LOCKS: dict[tuple[int, int], asyncio.Lock] = {}
 
 async def get_chat_member_cached(bot: Bot, chat_id: int, user_id: int) -> Any | None:
-    """Reuse confirmed membership and bound cold Telegram checks to a short request."""
+    """Reuse membership snapshots and coalesce concurrent cold checks for one user."""
     key = (chat_id, user_id)
     now = time.monotonic()
     cached = _CHAT_MEMBER_CACHE.get(key)
@@ -2724,28 +2725,36 @@ async def get_chat_member_cached(bot: Bot, chat_id: int, user_id: int) -> Any | 
         ttl = _CHAT_MEMBER_CACHE_TTL if cached[0] is not None else _CHAT_MEMBER_FAILURE_TTL
         if now - cached[1] < ttl:
             return cached[0]
-    try:
-        member = await bot.get_chat_member(
-            chat_id, user_id, request_timeout=_CHAT_MEMBER_REQUEST_TIMEOUT
-        )
-    except (TelegramBadRequest, TelegramForbiddenError):
-        _CHAT_MEMBER_CACHE[key] = (None, now)
-        return None
-    except Exception as exc:
-        log.warning(
-            "Telegram getChatMember failed fast; refusing unverified member check chat=%s user=%s error=%s: %s",
-            chat_id, user_id, type(exc).__name__, str(exc)[:180],
-        )
-        _CHAT_MEMBER_CACHE[key] = (None, now)
-        return None
-    _CHAT_MEMBER_CACHE[key] = (member, now)
-    if len(_CHAT_MEMBER_CACHE) > 5000:
-        cutoff = now - _CHAT_MEMBER_CACHE_TTL * 3
-        for old_key, (_, stamp) in list(_CHAT_MEMBER_CACHE.items()):
-            if stamp < cutoff:
-                _CHAT_MEMBER_CACHE.pop(old_key, None)
-    return member
-
+    lock = _CHAT_MEMBER_LOCKS.setdefault(key, asyncio.Lock())
+    async with lock:
+        now = time.monotonic()
+        cached = _CHAT_MEMBER_CACHE.get(key)
+        if cached:
+            ttl = _CHAT_MEMBER_CACHE_TTL if cached[0] is not None else _CHAT_MEMBER_FAILURE_TTL
+            if now - cached[1] < ttl:
+                return cached[0]
+        try:
+            member = await bot.get_chat_member(
+                chat_id, user_id, request_timeout=_CHAT_MEMBER_REQUEST_TIMEOUT
+            )
+        except (TelegramBadRequest, TelegramForbiddenError):
+            _CHAT_MEMBER_CACHE[key] = (None, time.monotonic())
+            return None
+        except Exception as exc:
+            log.warning(
+                "Telegram getChatMember failed fast; refusing unverified member check chat=%s user=%s error=%s: %s",
+                chat_id, user_id, type(exc).__name__, str(exc)[:180],
+            )
+            _CHAT_MEMBER_CACHE[key] = (None, time.monotonic())
+            return None
+        _CHAT_MEMBER_CACHE[key] = (member, time.monotonic())
+        if len(_CHAT_MEMBER_CACHE) > 5000:
+            cutoff = time.monotonic() - _CHAT_MEMBER_CACHE_TTL * 3
+            for old_key, (_, stamp) in list(_CHAT_MEMBER_CACHE.items()):
+                if stamp < cutoff:
+                    _CHAT_MEMBER_CACHE.pop(old_key, None)
+                    _CHAT_MEMBER_LOCKS.pop(old_key, None)
+        return member
 async def is_current_chat_member(chat_id: int, user_id: int) -> bool:
     """Return True only when Telegram confirms the account is currently in this chat."""
     if int(user_id or 0) <= 0:
