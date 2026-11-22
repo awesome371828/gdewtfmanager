@@ -116,7 +116,7 @@ except ValueError:
 # Bound ordinary API reads so a degraded upstream cannot freeze a command for
 # several seconds. Endpoints that mutate data or authorize privileged actions
 # pass an explicit, larger timeout at the call site.
-_TIMEOUT = aiohttp.ClientTimeout(total=1.8, connect=0.7, sock_read=1.2)
+_TIMEOUT = aiohttp.ClientTimeout(total=8.0, connect=2.0, sock_read=6.0)
 # Reuse keep-alive connections to avoid a fresh DNS/TCP/TLS handshake on every
 # command. The API session is closed cleanly with the bot during shutdown.
 _API_SESSION: aiohttp.ClientSession | None = None
@@ -745,7 +745,7 @@ async def _gdewtf_authorize_locked(user_id: int, action: str, username: str | No
 
     # Authorization must fail quickly when the external service is unhealthy;
     # the circuit breaker prevents every command from paying this timeout.
-    timeout = aiohttp.ClientTimeout(total=0.9, connect=0.4, sock_read=0.65)
+    timeout = aiohttp.ClientTimeout(total=4.0, connect=1.5, sock_read=3.0)
 
     async def lookup(query: str) -> dict[str, Any]:
         _GDEWTF_API_CACHE.pop(_gdewtf_cache_key("/mod", {"q": query}), None)
@@ -788,7 +788,7 @@ async def _gdewtf_authorize_locked(user_id: int, action: str, username: str | No
         _GDEWTF_API_CACHE.pop(_gdewtf_cache_key("/mods", {}), None)
         directory = await _api(
             "GET", "/mods",
-            request_timeout=aiohttp.ClientTimeout(total=1.6, connect=0.6, sock_read=1.1),
+            request_timeout=aiohttp.ClientTimeout(total=5.0, connect=1.5, sock_read=4.0),
         )
         if not directory.get("ok"):
             transport_failure = directory
@@ -867,7 +867,7 @@ async def _gdewtf_safe_answer(message: Message, *args: Any, **kwargs: Any) -> bo
     # from the profile/help builders are left untouched.
     if args and isinstance(args[0], str) and not args[0].startswith("✦ <b>"):
         args = (format_panel("ОТВЕТ GDE.WTF", args[0], "GDE.WTF · внешний API"), *args[1:])
-    kwargs["request_timeout"] = 2.0
+    kwargs["request_timeout"] = 8.0
     try:
         await message.answer(*args, **kwargs)
         return True
@@ -1568,7 +1568,7 @@ async def gdewtf_command(message: Message) -> None:
             remove_q = rest[0]
             data = await _api(
                 "POST", "/mod/remove", body={"q": remove_q},
-                request_timeout=aiohttp.ClientTimeout(total=1.2, connect=0.5, sock_read=0.85),
+                request_timeout=aiohttp.ClientTimeout(total=6.0, connect=1.5, sock_read=4.5),
             )
             # Never chain a second slow request inside the Telegram update handler.
             # A timed-out write has an ambiguous outcome; report it honestly and do
@@ -1587,7 +1587,7 @@ async def gdewtf_command(message: Message) -> None:
                 body["reason"] = " ".join(rest[1:])
             data = await _api(
                 "POST", "/ban", body=body,
-                request_timeout=aiohttp.ClientTimeout(total=4.0, connect=0.8, sock_read=3.0),
+                request_timeout=aiohttp.ClientTimeout(total=8.0, connect=2.0, sock_read=6.0),
             )
         elif action in {"разбан", "unban", "анбан"}:
             if not rest:
@@ -1597,7 +1597,7 @@ async def gdewtf_command(message: Message) -> None:
             # server can unban even when the target is absent from /mods.
             data = await _api(
                 "POST", "/ban", body={"q": rest[0], "ban": False},
-                request_timeout=aiohttp.ClientTimeout(total=4.0, connect=0.8, sock_read=3.0),
+                request_timeout=aiohttp.ClientTimeout(total=8.0, connect=2.0, sock_read=6.0),
             )
         else:
             await _gdewtf_safe_answer(message, _help())
@@ -1793,7 +1793,7 @@ else:
 # Bound ordinary Telegram API calls so a stalled send cannot block a command
 # for 6–7 seconds. Keep polling's transport timeout longer than Telegram's
 # 25-second long-poll wait; otherwise the session default can abort every poll.
-_TELEGRAM_API_TIMEOUT = 3
+_TELEGRAM_API_TIMEOUT = 8
 _TELEGRAM_POLLING_REQUEST_TIMEOUT = 35
 
 class LowLatencyBot(Bot):
@@ -1829,7 +1829,7 @@ class LowLatencyBot(Bot):
 # A short GetUpdates transport timeout causes repeated polls and delays updates.
 bot = LowLatencyBot(
     BOT_TOKEN,
-    session=AiohttpSession(timeout=8, limit=500),
+    session=AiohttpSession(timeout=12, limit=500),
     default=DefaultBotProperties(parse_mode=ParseMode.HTML, link_preview_is_disabled=True),
 )
 dp = Dispatcher()
@@ -1853,7 +1853,7 @@ async def get_bot_me_cached(max_age: float = 300.0) -> Any:
         if _BOT_ME_CACHE is not None and now - _BOT_ME_CACHE_AT < max_age:
             return _BOT_ME_CACHE
         try:
-            fetched = await asyncio.wait_for(bot.get_me(), timeout=2.0)
+            fetched = await asyncio.wait_for(bot.get_me(), timeout=5.0)
             _BOT_ME_CACHE = fetched
             _BOT_ME_CACHE_AT = time.monotonic()
             return fetched
@@ -2656,7 +2656,7 @@ async def is_owner(user_id: int) -> bool:
 _CHAT_MEMBER_CACHE: dict[tuple[int, int], tuple[Any | None, float]] = {}
 _CHAT_MEMBER_CACHE_TTL = 60.0
 _CHAT_MEMBER_FAILURE_TTL = 1.5
-_CHAT_MEMBER_REQUEST_TIMEOUT = 0.9
+_CHAT_MEMBER_REQUEST_TIMEOUT = 3.0
 
 async def get_chat_member_cached(bot: Bot, chat_id: int, user_id: int) -> Any | None:
     """Reuse confirmed membership and bound cold Telegram checks to a short request."""
@@ -8428,14 +8428,14 @@ async def _configure_telegram_menu(
                     text="Открыть GDE.WTF",
                     web_app=WebAppInfo(url=MINI_APP_URL),
                 ),
-                request_timeout=2,
+                request_timeout=8,
             ),
         ),
         *[
             (
                 label,
                 lambda commands=commands, scope=scope: bot.set_my_commands(
-                    commands, scope=scope, request_timeout=2
+                    commands, scope=scope, request_timeout=8
                 ),
             )
             for label, commands, scope in (
@@ -9549,7 +9549,7 @@ async def run_forever() -> None:
                 # silently restore aiogram's 60-second default.
                 bot = LowLatencyBot(
                     BOT_TOKEN,
-                    session=AiohttpSession(timeout=8, limit=500),
+                    session=AiohttpSession(timeout=12, limit=500),
                     default=DefaultBotProperties(
                         parse_mode=ParseMode.HTML, link_preview_is_disabled=True
                     ),
