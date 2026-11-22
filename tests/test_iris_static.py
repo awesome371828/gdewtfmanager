@@ -727,5 +727,26 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertNotIn('"/mod"', stale_helper)
         self.assertIn('result["stale_cache"] = True', stale_helper)
 
+
+    def test_authorization_directory_fallback_reuses_short_lived_mods_cache(self):
+        auth_start = self.source.index("async def _gdewtf_authorize_locked(")
+        auth_end = self.source.index("async def _gdewtf_safe_answer", auth_start)
+        auth = self.source[auth_start:auth_end]
+        self.assertNotIn('_GDEWTF_API_CACHE.pop(_gdewtf_cache_key("/mods", {}), None)', auth)
+        self.assertIn('_GDEWTF_API_CACHE_TTL = {"/mods": 4.0', self.source)
+        self.assertIn("The short-lived /mods snapshot", auth)
+
+    def test_external_api_latency_is_logged_without_retrying_ambiguous_writes(self):
+        api_start = self.source.index("async def _api(")
+        api_end = self.source.index("\ndef _clean(", api_start)
+        api = self.source[api_start:api_end]
+        self.assertIn("request_started = time.monotonic()", api)
+        self.assertIn("GDE.WTF API slow response", api)
+        answer_start = self.source.index("async def _gdewtf_safe_answer")
+        answer_end = self.source.index("# The GDE.WTF router", answer_start)
+        answer = self.source[answer_start:answer_end]
+        self.assertIn("Telegram reply delivery slow", answer)
+        self.assertIn("not retrying", answer)
+
 if __name__ == "__main__":
     unittest.main()
