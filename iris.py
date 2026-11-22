@@ -3191,7 +3191,6 @@ async def help_command(message: Message) -> None:
         )
     )
     help_text = (
-        "📚 <b>GDE.WTF — команды</b>\n\n"
         "🛡 <b>Модерация:</b> мут, бан, кик, варн, -смс, +чат / -чат. "
         "Для действия над участником можно ответить на его сообщение.\n"
         "📊 <b>Статистика:</b> топ, топ дня, топ недели, топ вся.\n"
@@ -3343,7 +3342,7 @@ async def profile(message: Message) -> None:
         f"✨ Уровень: <b>{level_name}</b>\n"
         f"⚠️ Активных предупреждений: <b>{warns}</b>\n"
         f"{progress}\n\n"
-        "Команды: <code>кто я</code> · <code>топ</code> · <code>активность</code>".replace(",", " "),
+        "Команды: <code>кто я</code> · <code>топ</code> · <code>активность</code>",
         "Профиль участника · данные этого чата",
     ))
 
@@ -4586,6 +4585,10 @@ async def info_cmd(message: Message) -> None:
         return
     user = await asyncio.to_thread(db_one, "bot_users", user_id=target[0], chat_id=message.chat.id) or {}
     try:
+        rank_value = max(0, min(5, int(user.get("rank", 0) or 0)))
+    except (TypeError, ValueError):
+        rank_value = 0
+    try:
         member = await bot.get_chat_member(message.chat.id, target[0])
         status = str(member.status).replace("ChatMemberStatus.", "")
     except Exception:
@@ -4596,7 +4599,7 @@ async def info_cmd(message: Message) -> None:
         f"🆔 Telegram ID: <code>{target[0]}</code>\n"
         f"📍 Статус: <code>{escape(status)}</code>\n"
         f"⚠️ Предупреждения: <b>{int(user.get('warns', 0))}</b>\n"
-        f"🏅 Ранг: <b>{int(user.get('rank', 0))} · {role_name(int(user.get('rank', 0) or 0))}</b>\n"
+        f"🏅 Ранг: <b>{rank_value} · {role_name(rank_value)}</b>\n"
         f"💬 Сообщений: <b>{int(user.get('messages', 0))}</b>",
         "Профиль участника · данные этого чата",
     ))
