@@ -407,6 +407,15 @@ async def _api(
 
     normalized_path = "/" + path.lstrip("/")
     cache_key = _gdewtf_cache_key(normalized_path, params)
+    cache_ttl = _GDEWTF_API_CACHE_TTL.get(normalized_path, 0.0)
+    cached = _GDEWTF_API_CACHE.get(cache_key) if cache_ttl else None
+    if cached and time.monotonic() - cached[0] < cache_ttl:
+        return dict(cached[1])
+    # Circuit-open fallback is safe only for the explicitly public directory lists.
+    if _GDEWTF_BREAKER_OPEN_UNTIL > time.monotonic():
+        stale = _gdewtf_stale_read(cache_key, normalized_path)
+        if stale is not None:
+            return stale
     timeout_key = str((request_timeout or _TIMEOUT).total)
     inflight_key = (normalized_path, cache_key[1], timeout_key)
     async with _GDEWTF_API_INFLIGHT_LOCK:
