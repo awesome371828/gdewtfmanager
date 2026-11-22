@@ -889,7 +889,6 @@ async def dispatch_dot_dk_menu_before_gdewtf(message: Message) -> None:
 
 
 @gdewtf_router.message(F.text.startswith("!"))
-@gdewtf_router.message(F.text.regexp(r"(?i)^\s*[/.]?(?:gde|gdewtf)(?:\s|$)"))
 async def gdewtf_command(message: Message) -> None:
     if not message.from_user:
         return
