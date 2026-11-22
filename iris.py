@@ -3306,7 +3306,11 @@ async def group_menu_callback(callback: CallbackQuery) -> None:
         [InlineKeyboardButton(text="↩️ Выход в главное меню", callback_data="home:start")]
     ])
     try:
-        await callback.message.edit_text(body, reply_markup=keyboard)
+        page_title = {"start": "ГЛАВНОЕ МЕНЮ", "home": "ГЛАВНОЕ МЕНЮ", "help": "КОМАНДЫ И ВОЗМОЖНОСТИ", "profile": "ПРОФИЛЬ УЧАСТНИКА"}.get(action, "GDE.WTF")
+        await callback.message.edit_text(
+            format_panel(page_title, body, "GDE.WTF · навигация"),
+            reply_markup=keyboard,
+        )
     except Exception as exc:
         if "message is not modified" not in str(exc).lower():
             log.debug("Could not edit group menu message: %s", exc)
@@ -7379,9 +7383,11 @@ async def owner_panel(message: Message) -> None:
     if not await _owner_or_operator(message):
         return
     await message.answer(
-        "🛠 <b>Панель управления GDE.WTF</b>\n\nВыберите действие кнопкой ниже. "
-        "Для бана бот попросит прислать ID или @username, а затем срок и причину. "
-        "Доступ только владельцу и активным операторам.",
+        format_panel(
+            "ПАНЕЛЬ УПРАВЛЕНИЯ",
+            "Выберите действие кнопкой ниже. Для блокировки бот запросит ID или @username, срок и причину.",
+            "GDE.WTF · владелец и активные операторы",
+        ),
         reply_markup=admin_inline_keyboard(),
     )
 
@@ -7400,13 +7406,11 @@ async def home_inline_callback(callback: CallbackQuery) -> None:
     )
     if action in {"start", "home"}:
         body = (
-            "👋 <b>Главное меню GDE.WTF</b>\n\n"
             "Выберите нужный раздел. Все разделы открываются в этом сообщении — чат не засоряется."
         )
         keyboard = welcome_inline_keyboard(user_id, chat_type, privileged)
     elif action == "help":
         body = (
-            "📚 <b>Команды GDE.WTF</b>\n\n"
             "<b>Профиль и статистика</b>\n"
             "• /profile — профиль и статистика\n• /top — топ участников\n"
             "• /admins — список администраторов\n• /warns — мои предупреждения\n\n"
@@ -7428,7 +7432,6 @@ async def home_inline_callback(callback: CallbackQuery) -> None:
                 callback.from_user.username, callback.from_user.full_name
             )
             body = (
-                f"💠 <b>Твой профиль</b>\n\n"
                 f"👤 {mention(user_id, callback.from_user.full_name)}\n"
                 f"💬 Сообщений: <b>{int(user.get('messages', 0))}</b>\n"
                 f"🏅 Ранг: <b>{int(user.get('rank', 0))}</b>\n"
