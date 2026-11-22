@@ -49,6 +49,8 @@ class RuntimeReliabilityRegressionTests(unittest.TestCase):
         self.assertIn(guard, body)
         self.assertLess(body.index(guard), body.index("await _gdewtf_authorize("))
         self.assertIn("not has_reply_target", body)
+        self.assertIn("reply_user.id != message.from_user.id", body)
+        self.assertLess(body.index("has_reply_target"), body.index("await _gdewtf_authorize("))
 
     def test_mod_remove_timeout_does_not_chain_a_slow_verification_request(self):
         start = SOURCE.index('elif action in {"снять", "modremove"}:')
