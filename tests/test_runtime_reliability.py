@@ -69,6 +69,13 @@ class RuntimeReliabilityRegressionTests(unittest.TestCase):
         self.assertLess(controller_guard, first_member_lookup)
         self.assertIn("return True", body[owner_guard:first_settings_lookup])
 
+    def test_reply_delete_reports_the_specific_missing_delete_permission(self):
+        start = SOURCE.index("async def delete_message_cmd")
+        end = SOURCE.index('@router.message(Command("purge"))', start)
+        body = SOURCE[start:end]
+        self.assertIn("isinstance(target_error, TelegramForbiddenError)", body)
+        self.assertIn("право «Удаление сообщений»", body)
+
     def test_reply_delete_runs_target_and_command_deletions_concurrently(self):
         start = SOURCE.index("async def delete_message_cmd")
         end = SOURCE.index('@router.message(Command("purge"))', start)
