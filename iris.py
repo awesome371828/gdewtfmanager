@@ -4633,7 +4633,12 @@ async def delete_message_cmd(message: Message) -> None:
                 )
             if command_error is not None:
                 log.debug("Could not delete reply-delete command: %s", command_error)
-            if target_error is not None:
+            if isinstance(target_error, TelegramForbiddenError):
+                await message.answer(
+                    "⛔ Не удалось удалить сообщение: назначь GDE.WTF администратором "
+                    "и включи отдельное право «Удаление сообщений» в этом чате."
+                )
+            elif target_error is not None:
                 await safe_error(message, target_error)
             else:
                 audit(message.chat.id, message.from_user.id if message.from_user else 0,
