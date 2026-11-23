@@ -94,7 +94,7 @@ class RuntimeReliabilityRegressionTests(unittest.TestCase):
 
     def test_bare_profile_uses_sender_and_reuses_single_resolved_profile(self):
         start = SOURCE.index("async def gdewtf_command")
-        end = SOURCE.index("# The GDE.WTF router", start)
+        end = SOURCE.index('@gdewtf_router.callback_query(F.data.startswith("gdepanel:"))', start)
         body = SOURCE[start:end]
         self.assertIn('if action in {"профиль", "who", "mod"} and not rest and not replied_user:', body)
         self.assertIn("rest = [str(message.from_user.id)]", body)
@@ -122,6 +122,22 @@ class RuntimeReliabilityRegressionTests(unittest.TestCase):
         self.assertNotIn("verify = await _api", body)
         self.assertNotIn("total=3", body)
 
+
+    def test_gdewtf_router_ignores_unknown_bang_prose_before_authorization(self):
+        start = SOURCE.index("async def gdewtf_command")
+        end = SOURCE.index('@gdewtf_router.callback_query(F.data.startswith("gdepanel:"))', start)
+        body = SOURCE[start:end]
+        self.assertLess(body.index("if action_for_auth not in _GDEWTF_COMMAND_ACTIONS:"), body.index("await _gdewtf_authorize("))
+        self.assertIn('"снять", "modremove", "бан", "ban"', SOURCE)
+        self.assertIn('"профиль", "profile", "who"', SOURCE)
+
+    def test_extra_moderation_aliases_match_only_at_message_start(self):
+        start = SOURCE.index("_MODERATION_ALIAS_GROUPS = [")
+        end = SOURCE.index("@router.message(F.text.regexp", start)
+        body = SOURCE[start:end]
+        self.assertIn('(?i)^\\\\s*', body)
+        self.assertIn('match = pattern.match(raw)', SOURCE)
+        self.assertNotIn('(?i).*бан', body)
 
 if __name__ == "__main__":
     unittest.main()
