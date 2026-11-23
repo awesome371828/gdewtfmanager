@@ -990,7 +990,7 @@ async def dispatch_dot_dk_menu_before_gdewtf(message: Message) -> None:
     await command_rank_rule_cmd(message)
 
 
-@gdewtf_router.message(F.text.startswith("!"))
+@gdewtf_router.message(F.text.regexp(r"(?i)^\\s*!(?:gde(?:wtf)?|профиль|profile|who|кто|статус|status|права|варны|warns|поиск|search|модеры|сверка|модераторы|mods|города|cities|топ|top|рейтинг|rating|ping|пинг|help|помощь|команды|панель|panel|меню|люди|people|users|участники|варн|warn|снятьварн|снять-варн|анварн|unwarn|снятьварны|снять-варны|warnclear|ник|nick|город|city|амб|amb|rgov|регион|региональный|назначить|modset|снять|modremove|бан|ban|разбан|unban|анбан|журнал|лог|log)(?:\\s|$)"))
 async def gdewtf_command(message: Message) -> None:
     if not message.from_user:
         return
