@@ -807,14 +807,14 @@ def _gdewtf_is_designated_controller(profile: dict[str, Any], telegram_id: int |
 
 def _gdewtf_is_owner_or_chief(profile: dict[str, Any]) -> bool:
     """Allow only explicit project-owner/chief flags, role identifiers, or permission codes."""
-    for field in ("is_owner", "is_project_owner", "project_owner", "is_chief",
-                  "is_chief_moderator", "chief_moderator", "is_head_moderator",
-                  "is_project_chief"):
+    for field in ("is_owner", "is_project_owner", "project_owner", "is_admin",
+                  "is_chief", "is_chief_moderator", "chief_moderator",
+                  "is_head_moderator", "is_project_chief"):
         value = profile.get(field)
         if value is True or (isinstance(value, (int, str)) and str(value).strip().casefold() in {"1", "true", "yes"}):
             return True
     roles = (profile.get(k) for k in ("role", "role_id", "role_key", "role_label", "title", "position", "rank", "type"))
-    markers = ("owner", "project owner", "site owner", "chief", "chief moderator",
+    markers = ("owner", "project owner", "site owner", "admin", "administrator", "администратор", "chief", "chief moderator",
                "head moderator", "главный модератор", "главмод", "владелец проекта",
                "создатель проекта")
     for raw in roles:
@@ -822,7 +822,7 @@ def _gdewtf_is_owner_or_chief(profile: dict[str, Any]) -> bool:
             continue
         role = re.sub(r"[_-]+", " ", str(raw).strip().casefold())
         role = re.sub(r"\s+", " ", role)
-        if role in {"владелец", "owner", "chief", "главмод"} or any(m in role for m in markers):
+        if role in {"владелец", "owner", "admin", "administrator", "администратор", "chief", "главмод"} or any(m in role for m in markers):
             return True
     permissions: list[Any] = []
     for field in ("perms", "permissions", "permission_codes", "rights", "capabilities"):
@@ -1061,7 +1061,11 @@ async def _gdewtf_authorize_locked(user_id: int, action: str, username: str | No
 
     # The canonical RND profile is the sole source of per-command permissions.
     _GDEWTF_ACCESS_CACHE[user_id] = (time.monotonic(), mod)
-    if is_designated_controller or str(user_id) == str(OWNER_ID):
+    if (
+        is_designated_controller
+        or str(user_id) == str(OWNER_ID)
+        or _gdewtf_is_owner_or_chief(mod)
+    ):
         return True, ""
 
     required_permission = _gdewtf_required_permission(action)
