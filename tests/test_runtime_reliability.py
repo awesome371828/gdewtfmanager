@@ -43,17 +43,25 @@ class RuntimeReliabilityRegressionTests(unittest.TestCase):
         self.assertIn("transport_failure", body)
         self.assertIn("return False", body)
 
-    def test_targetless_warn_and_ban_skip_external_authorization(self):
+    def test_targetless_warn_and_ban_check_permissions_before_usage_hint(self):
         start = SOURCE.index("async def gdewtf_command")
         end = SOURCE.index("# The GDE.WTF router is mounted", start) if "# The GDE.WTF router is mounted" in SOURCE[start:] else start + 5000
         body = SOURCE[start:end]
         guard = 're.fullmatch(r"!\\s*(?:варн|warn|бан|ban)\\s*", text, re.IGNORECASE)'
         self.assertIn(guard, body)
-        self.assertLess(body.index(guard), body.index("await _gdewtf_authorize("))
+        self.assertLess(body.index("await _gdewtf_authorize("), body.index(guard))
         self.assertIn("not has_reply_target", body)
         self.assertIn("has_reply_target = reply_user is not None", body)
         self.assertIn("replied_user = reply_user", body)
-        self.assertLess(body.index("has_reply_target"), body.index("await _gdewtf_authorize("))
+
+    def test_gdewtf_auth_outage_is_reported_as_unverified_permissions_not_action_timeout(self):
+        start = SOURCE.index("async def _gdewtf_authorize_locked")
+        end = SOURCE.index("async def _gdewtf_safe_answer", start)
+        body = SOURCE[start:end]
+        self.assertIn("Не удалось подтвердить твои права в GDE.WTF", body)
+        self.assertIn("Это не означает, что прав нет", body)
+        self.assertIn("доступ не предоставлен без проверки", body)
+        self.assertNotIn('return False, "⚠️ " + _error_text(transport_failure)', body)
 
     def test_chat_moderation_owner_bypasses_chat_settings_and_membership_lookups(self):
         start = SOURCE.index("async def require_admin(")
