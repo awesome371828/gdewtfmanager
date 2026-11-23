@@ -720,6 +720,16 @@ _GDEWTF_READONLY_ACTIONS = frozenset({
     "users", "участники",
 })
 
+# Exact first-token allowlist for the GDE.WTF command router. This prevents
+# arbitrary !-prefixed sentences (for example "!я выдал бан") from triggering
+# authorization lookups or being interpreted as commands.
+_GDEWTF_COMMAND_ACTIONS = _GDEWTF_READONLY_ACTIONS | frozenset({
+    "gde", "gdewtf", "варн", "warn", "снятьварн", "снять-варн", "анварн", "unwarn",
+    "снятьварны", "снять-варны", "warnclear", "ник", "nick", "город", "city",
+    "амб", "amb", "rgov", "регион", "региональный", "назначить", "modset",
+    "снять", "modremove", "бан", "ban", "разбан", "unban", "анбан",
+})
+
 
 def _gdewtf_is_designated_controller(profile: dict[str, Any], telegram_id: int | str | None = None) -> bool:
     """Trust approved GDE.WTF codes or a separately verified controller Telegram ID."""
@@ -1001,6 +1011,10 @@ async def gdewtf_command(message: Message) -> None:
         )
         return
     action_for_auth = _gdewtf_action_from_message(text)
+    # Ignore unknown !-prefixed prose before authorization or any API access.
+    # Only a recognized command in the first token is executable.
+    if action_for_auth not in _GDEWTF_COMMAND_ACTIONS:
+        return
     try:
         authorized, denial = await _gdewtf_authorize(message.from_user.id, action_for_auth, message.from_user.username)
     except Exception:
