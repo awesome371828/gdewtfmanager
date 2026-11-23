@@ -83,6 +83,36 @@ class RuntimeReliabilityRegressionTests(unittest.TestCase):
         self.assertIn("action in target_actions_for_resolution", body)
         self.assertIn("Mutation endpoints resolve the supplied identifier themselves.", body)
 
+    def test_gdewtf_profile_is_public_read_only_for_every_telegram_user(self):
+        start = SOURCE.index("async def _gdewtf_authorize(")
+        end = SOURCE.index("async def _gdewtf_authorize_locked", start)
+        body = SOURCE[start:end]
+        public_guard = 'if action in {"профиль", "profile", "who", "mod"}:'
+        self.assertIn(public_guard, body)
+        self.assertLess(body.index(public_guard), body.index("lock = _GDEWTF_AUTH_LOCKS.setdefault"))
+        self.assertIn("return True, \"\"", body)
+
+    def test_bare_profile_uses_sender_and_reuses_single_resolved_profile(self):
+        start = SOURCE.index("async def gdewtf_command")
+        end = SOURCE.index("# The GDE.WTF router", start)
+        body = SOURCE[start:end]
+        self.assertIn('if action in {"профиль", "who", "mod"} and not rest and not replied_user:', body)
+        self.assertIn("rest = [str(message.from_user.id)]", body)
+        self.assertIn("mod, data = resolved_target_profile, {\"ok\": True, \"mod\": resolved_target_profile}", body)
+        self.assertIn("_profile(mod, chat_messages, message.chat.title or \"личный чат\")", body)
+
+    def test_profile_activity_counter_is_scoped_to_current_chat_and_user(self):
+        start = SOURCE.index("def _gdewtf_chat_message_count(")
+        end = SOURCE.index("\\n\\ndef _profile(", start)
+        body = SOURCE[start:end]
+        self.assertIn('db_rows("bot_activity_daily", 5000, order="day", chat_id=cid, user_id=uid)', body)
+        self.assertIn('db_one("bot_users", chat_id=cid, user_id=uid)', body)
+        profile_start = SOURCE.index("def _profile(")
+        profile_end = SOURCE.index("\\n\\ndef _help()", profile_start)
+        profile = SOURCE[profile_start:profile_end]
+        self.assertIn("СТАТИСТИКА ПРОФИЛЯ ИМЕННО В ЭТОМ ЧАТЕ", profile)
+        self.assertIn("рейтинг и варны выше — данные GDE.WTF", profile)
+
     def test_mod_remove_timeout_does_not_chain_a_slow_verification_request(self):
         start = SOURCE.index('elif action in {"снять", "modremove"}:')
         end = SOURCE.index('elif action in {"бан", "ban"}:', start)
