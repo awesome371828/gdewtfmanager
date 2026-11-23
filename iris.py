@@ -1089,7 +1089,7 @@ async def gdewtf_command(message: Message) -> None:
         "профиль", "who", "mod", "варны", "кто", "статус", "права",
         "варн", "warn", "снять", "modremove", "снятьварн", "снять-варн", "анварн", "unwarn",
         "снятьварны", "снять-варны", "warnclear", "ник", "nick", "город", "city", "журнал", "лог", "log",
-        "амб", "amb", "rgov", "регион", "региональный", "назначить", "modset",
+        "амб", "amb", "модератор", "рег", "rgov", "регион", "региональный", "назначить", "modset",
         "бан", "ban", "разбан", "unban", "анбан",
     }
     if replied_user and action in target_actions:
