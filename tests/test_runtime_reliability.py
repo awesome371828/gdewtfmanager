@@ -155,11 +155,20 @@ class RuntimeReliabilityRegressionTests(unittest.TestCase):
         self.assertIn('if action in {"профиль", "who", "mod"}', gde_handler)
         self.assertIn("_profile(mod)", gde_handler)
 
+    def test_chat_profile_query_selects_only_required_columns(self):
+        start = SOURCE.index("def _chat_profile_stats(")
+        end = SOURCE.index("\ndef db_rows(", start)
+        body = SOURCE[start:end]
+        self.assertIn('.select("messages,rank,warns")', body)
+        self.assertIn('.eq("chat_id", int(chat_id))', body)
+        self.assertIn('.eq("user_id", int(user_id))', body)
+        self.assertIn('_db_read_with_retry("bot_users", "profile_stats", query)', body)
+
     def test_plain_profile_reads_only_the_current_chat_row_without_writes_or_gde_api(self):
         start = SOURCE.index("async def profile(message: Message)")
         end = SOURCE.index('@router.message(Command("time"))', start)
         body = SOURCE[start:end]
-        self.assertIn('db_one, "bot_users"', body)
+        self.assertIn("_chat_profile_stats, message.chat.id, message.from_user.id", body)
         self.assertIn("user_id=message.from_user.id", body)
         self.assertIn("chat_id=message.chat.id", body)
         self.assertNotIn("ensure_user(", body)
