@@ -559,6 +559,40 @@ def _gdewtf_perms(profile: dict[str, Any]) -> set[str]:
         values = []
     return {v for v in values if v}
 
+def _gdewtf_public_code(profile: dict[str, Any]) -> str | None:
+    """Return the canonical public RND code from a GDE.WTF moderator profile."""
+    for key in ("pub", "public_code", "rnd", "rnd_code", "code"):
+        value = str(profile.get(key) or "").strip().upper()
+        if re.fullmatch(r"RND-[A-Z0-9]{4}", value):
+            return value
+    return None
+
+
+_GDEWTF_ACTION_PERMISSIONS: dict[str, str] = {
+    "варн": "marks", "warn": "marks", "снятьварн": "marks",
+    "снять-варн": "marks", "анварн": "marks", "unwarn": "marks",
+    "снятьварны": "marks", "снять-варны": "marks", "warnclear": "marks",
+    "бан": "users", "ban": "users", "разбан": "users",
+    "unban": "users", "анбан": "users", "снять": "users",
+    "modremove": "users", "поиск": "users", "search": "users",
+    "кто": "users", "who": "users", "статус": "users", "status": "users",
+    "права": "users",
+    "модераторы": "maint", "модеры": "maint", "mods": "maint",
+    "назначить": "maint", "modset": "maint", "амб": "maint", "amb": "maint",
+    "модератор": "maint", "рег": "maint", "rgov": "maint",
+    "регион": "maint", "региональный": "maint", "ник": "maint",
+    "nick": "maint", "город": "maint", "city": "maint",
+    "журнал": "events", "лог": "events", "log": "events",
+    "топ": "stats", "top": "stats", "рейтинг": "stats", "rating": "stats",
+    "люди": "stats", "people": "stats", "users": "stats",
+    "участники": "stats", "города": "stats", "cities": "stats",
+}
+
+
+def _gdewtf_required_permission(action: str) -> str | None:
+    return _GDEWTF_ACTION_PERMISSIONS.get(str(action or "").casefold())
+
+
 def _gdewtf_identity_normalize(value: Any) -> str:
     raw = str(value or "").strip().casefold()
     if raw.startswith("https://t.me/"):
@@ -953,41 +987,105 @@ async def _gdewtf_authorize_locked(user_id: int, action: str, username: str | No
             "Проверены Telegram ID, username и список модераторов. "
             "Убедись, что Telegram привязан к профилю с кодом RND-XXXX."
         )
-    # The API key belongs to the integration, not to the target profile.
-    # A designated controller must retain API-management access even if their
-    # own GDE.WTF profile is banned/disabled; otherwise a self-ban deadlocks
-    # every recovery and moderation action. Identity is still verified above,
-    # and only the two explicitly approved controller codes get this bypass.
-    # user_id has already been matched against the profile's linked Telegram
-    # identity above; use it as a recovery identity if the banned profile omits
-    # its RND public code from the API response.
+    # Resolve every moderator through their canonical public RND-XXXX code.
+    # Telegram ID/username is used only to discover the linked profile; all
+    # permissions below come from a second authoritative lookup by RND code.
+    public_code = _gdewtf_public_code(mod)
+    if not public_code:
+        directory = await _api(
+            "GET", "/mods",
+            request_timeout=aiohttp.ClientTimeout(total=1.5, connect=0.5, sock_read=1.0),
+        )
+        if directory.get("ok"):
+            entries: list[Any] = []
+            for key in ("mods", "moderators", "items", "results", "data"):
+                value = directory.get(key)
+                if isinstance(value, list):
+                    entries.extend(value)
+                elif isinstance(value, dict):
+                    for nested_key in ("mods", "moderators", "items", "results"):
+                        if isinstance(value.get(nested_key), list):
+                            entries.extend(value[nested_key])
+            for entry in entries:
+                if isinstance(entry, dict) and _gdewtf_profile_matches_telegram(entry, user_id, username):
+                    public_code = _gdewtf_public_code(entry)
+                    if public_code:
+                        break
+        else:
+            log_gdewtf.warning(
+                "GDE.WTF RND mapping unavailable: telegram_id=%s action=%s error=%s",
+                user_id, action, directory.get("error"),
+            )
+            return False, (
+                "⛔ Не удалось проверить права: GDE.WTF не предоставил привязку Telegram к RND-коду. "
+                "Команда не выполнена."
+            )
+    if not public_code:
+        return False, (
+            "⛔ У Telegram-аккаунта не найден подтверждённый профиль RND-XXXX в GDE.WTF. "
+            "Привяжи Telegram к профилю модератора."
+        )
+
+    rnd_response = await _api(
+        "GET", "/mod", params={"q": public_code},
+        request_timeout=aiohttp.ClientTimeout(total=0.8, connect=0.3, sock_read=0.5),
+    )
+    rnd_profile = rnd_response.get("mod") if rnd_response.get("ok") and isinstance(rnd_response.get("mod"), dict) else None
+    if not rnd_profile:
+        log_gdewtf.warning(
+            "GDE.WTF RND permission lookup failed: telegram_id=%s rnd=%s action=%s error=%s",
+            user_id, public_code, action, rnd_response.get("error"),
+        )
+        return False, (
+            "⛔ Не удалось подтвердить права профиля "
+            f"<code>{_clean(public_code)}</code> через GDE.WTF. Команда не выполнена."
+        )
+    verified_code = _gdewtf_public_code(rnd_profile)
+    if verified_code != public_code or not _gdewtf_profile_matches_telegram(rnd_profile, user_id, username):
+        log_gdewtf.warning(
+            "GDE.WTF RND identity mismatch: telegram_id=%s requested_rnd=%s returned_rnd=%s",
+            user_id, public_code, verified_code,
+        )
+        return False, (
+            "⛔ Проверка RND-XXXX не совпала с Telegram-аккаунтом. "
+            "Команда не выполнена; доступ не предоставлен."
+        )
+    mod = rnd_profile
+
+    # Only the configured owner/controllers bypass their own profile status.
     is_designated_controller = _gdewtf_is_designated_controller(mod, user_id)
     if (mod.get("banned") is True or mod.get("active") is False) and not is_designated_controller:
         return False, "⛔ Аккаунт отключён или заблокирован в GDE.WTF. Обратись к контроллеру проекта для восстановления."
-    # Cache only a positively resolved, identity-verified profile.
+
+    # The canonical RND profile is the sole source of per-command permissions.
     _GDEWTF_ACCESS_CACHE[user_id] = (time.monotonic(), mod)
-    # Read-only actions are available to any active moderator with a correctly
-    # linked Telegram identity. Mutations and all panel buttons are controller-only.
-    # Prefix used by callback authorization prevents buttons from falling into the
-    # read-only command allowlist even when the button opens a read-only section.
-    # Legacy role-only predicate _gdewtf_is_owner_or_chief(mod) is intentionally
-    # insufficient here: only the two explicit public codes may mutate the project.
-    if action in _GDEWTF_READONLY_ACTIONS:
+    if is_designated_controller or str(user_id) == str(OWNER_ID):
         return True, ""
-    if not _gdewtf_is_designated_controller(mod):
+
+    required_permission = _gdewtf_required_permission(action)
+    actual_permissions = _gdewtf_perms(mod)
+    if required_permission and required_permission not in actual_permissions:
         role = str(mod.get("role_label") or mod.get("role") or mod.get("role_id") or "не указана")
-        pub = str(mod.get("pub") or mod.get("public_code") or mod.get("rnd_code") or mod.get("code") or "не найден")
         log_gdewtf.info(
-            "Denied GDE.WTF access: telegram_id=%s pub=%r role=%r perms=%r action=%s",
-            user_id, pub[:80], role[:100], mod.get("perms") or mod.get("permissions"), action,
+            "Denied GDE.WTF permission: telegram_id=%s rnd=%s role=%r required=%s actual=%r action=%s",
+            user_id, public_code, role, required_permission, sorted(actual_permissions), action,
         )
         return False, (
-            "⛔ Эта команда и кнопки доступны только контроллерам проекта "
-            "<code>RND-LJKD</code> и <code>RND-8VWA</code>.\n"
-            f"Твой профиль: <code>{_clean(pub)}</code> · роль: <code>{_clean(role)}</code>. "
-            "Информационные команды остаются доступны модераторам."
+            f"⛔ Нет права <code>{_clean(required_permission)}</code> для команды "
+            f"<code>!{_clean(action)}</code>.\n"
+            f"Профиль: <code>{_clean(public_code)}</code> · роль: <code>{_clean(role)}</code>. "
+            "Права проверены по профилю GDE.WTF."
         )
-    return True, ""
+
+    if action in _GDEWTF_READONLY_ACTIONS:
+        return True, ""
+    if _gdewtf_is_owner_or_chief(mod):
+        return True, ""
+    role = str(mod.get("role_label") or mod.get("role") or mod.get("role_id") or "не указана")
+    return False, (
+        "⛔ Для этой команды требуется право контроллера проекта или соответствующее разрешение GDE.WTF.\n"
+        f"Профиль: <code>{_clean(public_code)}</code> · роль: <code>{_clean(role)}</code>."
+    )
 
 async def _gdewtf_safe_answer(message: Message, *args: Any, **kwargs: Any) -> bool:
     """Send one bounded reply; never retry an ambiguous sendMessage timeout."""
