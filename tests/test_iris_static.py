@@ -503,7 +503,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         end = self.source.index("async def gdewtf_command", start)
         decorators = self.source[start:end]
         self.assertEqual(decorators.count("@gdewtf_router.message"), 1)
-        self.assertIn(r"(?i)^\\s*!", decorators)
+        self.assertIn(r"(?i)^\s*!", decorators)
         self.assertIn("профиль", decorators)
         self.assertIn("бан", decorators)
         self.assertNotIn('F.text.startswith("!")', decorators)
