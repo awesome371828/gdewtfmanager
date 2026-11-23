@@ -499,8 +499,10 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn('await _gdewtf_safe_answer(message,', body)
 
     def test_gdewtf_api_commands_require_bang_prefix(self):
-        start = self.source.index("@gdewtf_router.message(F.text.regexp", self.source.index("async def gdewtf_command") - 300)
-        end = self.source.index("async def gdewtf_command", start)
+        handler = self.source.index("async def gdewtf_command")
+        start = self.source.rfind("@gdewtf_router.message(F.text.regexp", 0, handler)
+        self.assertGreaterEqual(start, 0, "GDE.WTF command handler must have an explicit command-token filter")
+        end = handler
         decorators = self.source[start:end]
         self.assertEqual(decorators.count("@gdewtf_router.message"), 1)
         self.assertIn(r"(?i)^\s*!", decorators)
