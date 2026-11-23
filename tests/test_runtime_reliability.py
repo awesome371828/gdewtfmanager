@@ -55,6 +55,29 @@ class RuntimeReliabilityRegressionTests(unittest.TestCase):
         self.assertIn("replied_user = reply_user", body)
         self.assertLess(body.index("has_reply_target"), body.index("await _gdewtf_authorize("))
 
+    def test_chat_moderation_owner_bypasses_chat_settings_and_membership_lookups(self):
+        start = SOURCE.index("async def require_admin(")
+        end = SOURCE.index("async def require_real_admin(", start)
+        body = SOURCE[start:end]
+        owner_guard = body.index("message.from_user.id == OWNER_ID")
+        controller_guard = body.index("str(message.from_user.id) in _GDEWTF_CONTROLLER_TELEGRAM_IDS")
+        first_settings_lookup = body.index("get_chat_settings")
+        first_member_lookup = body.index("get_chat_member_cached")
+        self.assertLess(owner_guard, first_settings_lookup)
+        self.assertLess(controller_guard, first_settings_lookup)
+        self.assertLess(owner_guard, first_member_lookup)
+        self.assertLess(controller_guard, first_member_lookup)
+        self.assertIn("return True", body[owner_guard:first_settings_lookup])
+
+    def test_reply_delete_runs_target_and_command_deletions_concurrently(self):
+        start = SOURCE.index("async def delete_message_cmd")
+        end = SOURCE.index('@router.message(Command("purge"))', start)
+        body = SOURCE[start:end]
+        self.assertIn("async def delete_one_message(item: Message)", body)
+        self.assertIn("target_error, command_error = await asyncio.gather(", body)
+        self.assertIn("delete_one_message(target_message)", body)
+        self.assertIn("delete_one_message(message)", body)
+
     def test_configured_owner_bypasses_upstream_profile_lookup(self):
         start = SOURCE.index("async def _gdewtf_authorize(")
         end = SOURCE.index("async def _gdewtf_authorize_locked", start)
