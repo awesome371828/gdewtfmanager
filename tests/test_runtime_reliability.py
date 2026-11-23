@@ -130,19 +130,31 @@ class RuntimeReliabilityRegressionTests(unittest.TestCase):
         self.assertIn('if action in {"профиль", "who", "mod"} and not rest and not replied_user:', body)
         self.assertIn("rest = [str(message.from_user.id)]", body)
         self.assertIn("mod, data = resolved_target_profile, {\"ok\": True, \"mod\": resolved_target_profile}", body)
-        self.assertIn("_profile(mod, chat_messages, message.chat.title or \"личный чат\")", body)
+        self.assertIn("_profile(mod)", body)
+        self.assertNotIn("_gdewtf_chat_message_count", body)
 
-    def test_profile_activity_counter_is_scoped_to_current_chat_and_user(self):
-        start = SOURCE.index("def _gdewtf_chat_message_count(")
-        end = SOURCE.index("\n\ndef _profile(", start)
-        body = SOURCE[start:end]
-        self.assertIn('db_rows("bot_activity_daily", 5000, order="day", chat_id=cid, user_id=uid)', body)
-        self.assertIn('db_one("bot_users", chat_id=cid, user_id=uid)', body)
+    def test_gdewtf_profile_contains_only_upstream_profile_data(self):
         profile_start = SOURCE.index("def _profile(")
-        profile_end = SOURCE.index("\n\ndef _help()", profile_start)
+        profile_end = SOURCE.index("\n\n\ndef _help()", profile_start)
         profile = SOURCE[profile_start:profile_end]
-        self.assertIn("СТАТИСТИКА ПРОФИЛЯ ИМЕННО В ЭТОМ ЧАТЕ", profile)
-        self.assertIn("рейтинг и варны выше — данные GDE.WTF", profile)
+        self.assertIn("ПРОФИЛЬ GDE.WTF", profile)
+        self.assertIn("Рейтинг GDE.WTF", profile)
+        self.assertNotIn("СТАТИСТИКА ПРОФИЛЯ ИМЕННО В ЭТОМ ЧАТЕ", profile)
+        self.assertNotIn("bot_activity_daily", profile)
+        self.assertNotIn("_gdewtf_chat_message_count", SOURCE)
+
+    def test_plain_profile_reads_only_the_current_chat_row_without_writes_or_gde_api(self):
+        start = SOURCE.index("async def profile(message: Message)")
+        end = SOURCE.index('@router.message(Command("time"))', start)
+        body = SOURCE[start:end]
+        self.assertIn('db_one, "bot_users"', body)
+        self.assertIn("user_id=message.from_user.id", body)
+        self.assertIn("chat_id=message.chat.id", body)
+        self.assertNotIn("ensure_user(", body)
+        self.assertNotIn("active_warn_count(", body)
+        self.assertNotIn("_api(", body)
+        self.assertIn("TelegramNetworkError", body)
+        self.assertIn("not retrying", body)
 
     def test_mod_remove_timeout_does_not_chain_a_slow_verification_request(self):
         start = SOURCE.index('elif action in {"снять", "modremove"}:')
