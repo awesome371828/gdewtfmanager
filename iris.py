@@ -927,7 +927,22 @@ async def _gdewtf_authorize_locked(user_id: int, action: str, username: str | No
             "GDE.WTF authorization lookup unavailable: telegram_id=%s action=%s errors=%s",
             user_id, action, ";".join(api_errors)[:400],
         )
-        return False, "⚠️ " + _error_text(transport_failure)
+        detail = str(transport_failure.get("detail") or "")
+        if detail == "timeout":
+            return False, (
+                "⛔ Не удалось подтвердить твои права в GDE.WTF: сервис не ответил на проверку. "
+                "Команда не выполнена. Это не означает, что прав нет — проверку нужно повторить позже."
+            )
+        if detail == "connection":
+            return False, (
+                "⛔ Не удалось подтвердить твои права в GDE.WTF: нет соединения с сервисом. "
+                "Команда не выполнена; доступ не предоставлен без проверки."
+            )
+        return False, (
+            "⛔ Не удалось подтвердить твои права в GDE.WTF. "
+            "Команда не выполнена; доступ не предоставлен без проверки. "
+            + _error_text(transport_failure)
+        )
     if not mod:
         log_gdewtf.info(
             "GDE.WTF identity not linked: telegram_id=%s username=%r action=%s api=%s",
@@ -1033,14 +1048,6 @@ async def gdewtf_command(message: Message) -> None:
         else None
     )
     has_reply_target = reply_user is not None
-    # Reject incomplete target-required commands locally, before authorization.
-    if re.fullmatch(r"!\s*(?:варн|warn|бан|ban)\s*", text, re.IGNORECASE) and not has_reply_target:
-        await _gdewtf_safe_answer(
-            message,
-            "Укажи @username/Telegram ID или ответь на сообщение участника командой "
-            "`!варн` или `!бан`. Причина необязательна.",
-        )
-        return
     action_for_auth = _gdewtf_action_from_message(text)
     # Ignore unknown !-prefixed prose before authorization or any API access.
     # Only a recognized command in the first token is executable.
@@ -1054,6 +1061,16 @@ async def gdewtf_command(message: Message) -> None:
         return
     if not authorized:
         await _gdewtf_safe_answer(message, denial)
+        return
+    # Check permissions before usage hints: unauthorized users must receive
+    # the same explicit denial for every recognized command, including bare
+    # !бан/!варн without a target.
+    if re.fullmatch(r"!\s*(?:варн|warn|бан|ban)\s*", text, re.IGNORECASE) and not has_reply_target:
+        await _gdewtf_safe_answer(
+            message,
+            "Укажи @username/Telegram ID или ответь на сообщение участника командой "
+            "`!варн` или `!бан`. Причина необязательна.",
+        )
         return
     if text.startswith("!"):
         command_body = text[1:].strip()
