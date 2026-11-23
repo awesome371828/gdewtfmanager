@@ -791,7 +791,7 @@ _GDEWTF_READONLY_ACTIONS = frozenset({
 _GDEWTF_COMMAND_ACTIONS = _GDEWTF_READONLY_ACTIONS | frozenset({
     "gde", "gdewtf", "варн", "warn", "снятьварн", "снять-варн", "анварн", "unwarn",
     "снятьварны", "снять-варны", "warnclear", "ник", "nick", "город", "city",
-    "амб", "amb", "модератор", "рег", "rgov", "регион", "региональный", "назначить", "modset",
+    "амб", "amb", "модер", "модератор", "рег", "rgov", "регион", "региональный", "назначить", "modset",
     "снять", "modremove", "бан", "ban", "разбан", "unban", "анбан",
     "журнал", "лог", "log",
 })
@@ -1139,7 +1139,7 @@ async def dispatch_dot_dk_menu_before_gdewtf(message: Message) -> None:
     await command_rank_rule_cmd(message)
 
 
-@gdewtf_router.message(F.text.regexp(r"(?i)^\s*!(?:gde(?:wtf)?|профиль|profile|who|кто|статус|status|права|варны|warns|поиск|search|модеры|сверка|модераторы|mods|города|cities|топ|top|рейтинг|rating|ping|пинг|help|помощь|команды|панель|panel|меню|люди|people|users|участники|варн|warn|снятьварн|снять-варн|анварн|unwarn|снятьварны|снять-варны|warnclear|ник|nick|город|city|амб|amb|модератор|рег|rgov|регион|региональный|назначить|modset|снять|modremove|бан|ban|разбан|unban|анбан|журнал|лог|log)(?:\s|$)"))
+@gdewtf_router.message(F.text.regexp(r"(?i)^\s*!(?:gde(?:wtf)?|профиль|profile|who|кто|статус|status|права|варны|warns|поиск|search|модеры|сверка|модераторы|mods|города|cities|топ|top|рейтинг|rating|ping|пинг|help|помощь|команды|панель|panel|меню|люди|people|users|участники|варн|warn|снятьварн|снять-варн|анварн|unwarn|снятьварны|снять-варны|warnclear|ник|nick|город|city|амб|amb|модер|модератор|рег|rgov|регион|региональный|назначить|modset|снять|modremove|бан|ban|разбан|unban|анбан|журнал|лог|log)(?:\s|$)"))
 async def gdewtf_command(message: Message) -> None:
     if not message.from_user:
         return
@@ -1802,28 +1802,16 @@ async def gdewtf_command(message: Message) -> None:
                 await _gdewtf_safe_answer(message, "Формат: <code>!город @username city_id</code> (для удаления укажи -)")
                 return
             data = await _api("POST", "/city", body={"q": rest[0], "city": "" if rest[1] == "-" else rest[1]})
-        elif action in {"амб", "amb", "модератор"}:
+        elif action in {"амб", "amb", "модер", "модератор"}:
             if len(rest) < 2:
-                syntax = "!амб @username Омск" if action in {"амб", "amb"} else "!модератор @username Ростов"
+                syntax = "!амб Омск" if action in {"амб", "amb"} else "!модер Тула"
                 await _gdewtf_safe_answer(message, f"Формат: <code>{syntax}</code> или ответь на сообщение: <code>!{action} город</code>.")
                 return
-            city, city_data = await _gdewtf_resolve_city_name(" ".join(rest[1:]))
-            if city is None:
-                if city_data.get("error") == "ambiguous_city":
-                    detail = "Название неоднозначно: " + ", ".join(city_data.get("candidates") or [])
-                elif city_data.get("error") == "city_not_found":
-                    detail = f"Город «{_clean(' '.join(rest[1:]))}» отсутствует в справочнике GDE.WTF. Посмотри <code>!города</code>."
-                elif city_data.get("error") == "api_unavailable":
-                    detail = (
-                        "Справочник городов GDE.WTF сейчас не отвечает. "
-                        "Назначение НЕ выполнено. Это сбой внешнего API, а не ошибка прав. "
-                        "Повтори команду после восстановления GDE.WTF."
-                    )
-                else:
-                    detail = _error_text(city_data)
-                await _gdewtf_safe_answer(message, "⚠️ " + detail)
-                return
-            body = {"q": rest[0], "city": city.get("id"), "perms": "Лента"}
+            # /mod/set accepts the city value itself. Avoid GET /cities so
+            # directory downtime cannot block a simple moderator assignment.
+            # GDE.WTF remains authoritative and validates the city server-side.
+            city_name = " ".join(rest[1:]).strip()
+            body = {"q": rest[0], "city": city_name, "perms": "Лента"}
             if action in {"амб", "amb"}:
                 body["amb"] = True
             data = await _api(
