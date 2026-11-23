@@ -499,16 +499,27 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn('await _gdewtf_safe_answer(message,', body)
 
     def test_gdewtf_api_commands_require_bang_prefix(self):
-        handler = self.source.index("async def gdewtf_command")
-        start = self.source.rfind("@gdewtf_router.message(F.text.regexp", 0, handler)
-        self.assertGreaterEqual(start, 0, "GDE.WTF command handler must have an explicit command-token filter")
-        end = handler
-        decorators = self.source[start:end]
-        self.assertEqual(decorators.count("@gdewtf_router.message"), 1)
-        self.assertIn(r"(?i)^\s*!", decorators)
-        self.assertIn("профиль", decorators)
-        self.assertIn("бан", decorators)
-        self.assertNotIn('F.text.startswith("!")', decorators)
+        handler = next(
+            node for node in ast.walk(self.tree)
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "gdewtf_command"
+        )
+        router_decorators = [
+            decorator for decorator in handler.decorator_list
+            if isinstance(decorator, ast.Call)
+            and isinstance(decorator.func, ast.Attribute)
+            and decorator.func.attr == "message"
+            and isinstance(decorator.func.value, ast.Name)
+            and decorator.func.value.id == "gdewtf_router"
+        ]
+        self.assertEqual(len(router_decorators), 1)
+        command_filter = router_decorators[0].args[0]
+        self.assertIsInstance(command_filter, ast.Call)
+        self.assertIsInstance(command_filter.func, ast.Attribute)
+        self.assertEqual(command_filter.func.attr, "regexp")
+        pattern = command_filter.args[0].value
+        self.assertTrue(pattern.startswith(r"(?i)^\\s*!"), pattern)
+        self.assertIn("профиль", pattern)
+        self.assertIn("бан", pattern)
 
     def test_aiogram_session_does_not_pass_unsupported_connector_options(self):
         # AiohttpSession forwards kwargs to aiogram BaseSession; `family` is an
