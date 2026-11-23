@@ -498,12 +498,12 @@ def _help() -> str:
         "<code>!бан q [причина]</code> · <code>!разбан q</code> / <code>!анбан q</code> · <code>!снять q</code>\n\n"
         "<b>Управление командой</b>\n"
         "<code>!назначить q [город] [права]</code> · <code>!ник q новый_ник</code> / <code>!ник q -</code>\n"
-        "<code>!город q city_id</code> / <code>!город q -</code> · <code>!амб q</code> · <code>!rgov q регион [city1,city2]</code>\n\n"
+        "<code>!амб q город</code> · <code>!модератор q город</code> · <code>!рег q регион</code>\\n"\n        "<code>!город q city_id</code> / <code>!город q -</code> · <code>!амб q</code> · <code>!rgov q регион [city1,city2]</code>\n\n"
         "<b>Ответ на сообщение</b>\n"
         "Ответь на сообщение модератора командой без q: <code>!профиль</code>, <code>!варны</code>, "
         "<code>!варн причина</code>, <code>!снять</code>, <code>!бан причина</code>, "
         "<code>!разбан</code>, <code>!снятьварн [номер]</code>, <code>!снятьварны</code>, "
-        "<code>!ник новый_ник</code>, <code>!город city_id</code>, <code>!амб</code>, <code>!назначить</code>.\n"
+        "<code>!ник новый_ник</code>, <code>!амб город</code>, <code>!модератор город</code>, <code>!рег регион</code>, <code>!город city_id</code>, <code>!амб</code>, <code>!назначить</code>.\n"
         "Вместо q можно указать @username, Telegram ID или RND-код. Доступ определяется ролью и правами GDE.WTF."
     )
     return format_panel("КОМАНДЫ GDE.WTF", body, "GDE.WTF · справочник")
@@ -650,6 +650,73 @@ async def _gdewtf_resolve_mod(query: str) -> tuple[dict[str, Any] | None, dict[s
     return None, last
 
 
+
+def _gdewtf_location_key(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip().casefold().replace("ё", "е"))
+
+
+async def _gdewtf_city_directory() -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Read the cached GDE.WTF city directory; never guess city IDs."""
+    data = await _api(
+        "GET", "/cities",
+        request_timeout=aiohttp.ClientTimeout(total=1.5, connect=0.5, sock_read=1.0),
+    )
+    if not data.get("ok"):
+        return [], data
+    raw = data.get("cities")
+    if not isinstance(raw, list):
+        return [], {"ok": False, "error": "invalid_api_response", "detail": "cities_missing"}
+    return [row for row in raw if isinstance(row, dict)], data
+
+
+async def _gdewtf_resolve_city_name(value: str) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """Resolve a human city name or ID to the exact API city record."""
+    query = _gdewtf_location_key(value)
+    if not query:
+        return None, {"ok": False, "error": "city_required"}
+    cities, data = await _gdewtf_city_directory()
+    if not data.get("ok"):
+        return None, data
+    matches = [
+        city for city in cities
+        if query in {
+            _gdewtf_location_key(city.get("name")),
+            _gdewtf_location_key(city.get("id")),
+        }
+    ]
+    if len(matches) == 1:
+        return matches[0], {"ok": True, "city": matches[0]}
+    if len(matches) > 1:
+        names = sorted({str(row.get("name") or row.get("id")) for row in matches})
+        return None, {"ok": False, "error": "ambiguous_city", "candidates": names}
+    return None, {"ok": False, "error": "city_not_found", "query": value}
+
+
+async def _gdewtf_resolve_region_name(value: str) -> tuple[str | None, list[str], dict[str, Any]]:
+    """Resolve an exact region name and its city IDs from the public directory."""
+    query = _gdewtf_location_key(value)
+    if not query:
+        return None, [], {"ok": False, "error": "region_required"}
+    cities, data = await _gdewtf_city_directory()
+    if not data.get("ok"):
+        return None, [], data
+    regions: dict[str, tuple[str, set[str]]] = {}
+    for city in cities:
+        raw_region = str(city.get("region") or "").strip()
+        city_id = str(city.get("id") or "").strip()
+        if not raw_region:
+            continue
+        key = _gdewtf_location_key(raw_region)
+        if key not in regions:
+            regions[key] = (raw_region, set())
+        if city_id:
+            regions[key][1].add(city_id)
+    match = regions.get(query)
+    if not match:
+        return None, [], {"ok": False, "error": "region_not_found", "query": value}
+    canonical, city_ids = match
+    return canonical, sorted(city_ids), {"ok": True, "region": canonical}
+
 def _gdewtf_profile_matches_telegram(profile: dict[str, Any], user_id: int, username: str | None) -> bool:
     values = _gdewtf_profile_identity_values(profile)
     # If the API gives an explicit Telegram ID, it is authoritative. Never let
@@ -687,7 +754,7 @@ _GDEWTF_READONLY_ACTIONS = frozenset({
 _GDEWTF_COMMAND_ACTIONS = _GDEWTF_READONLY_ACTIONS | frozenset({
     "gde", "gdewtf", "варн", "warn", "снятьварн", "снять-варн", "анварн", "unwarn",
     "снятьварны", "снять-варны", "warnclear", "ник", "nick", "город", "city",
-    "амб", "amb", "rgov", "регион", "региональный", "назначить", "modset",
+    "амб", "amb", "модератор", "рег", "rgov", "регион", "региональный", "назначить", "modset",
     "снять", "modremove", "бан", "ban", "разбан", "unban", "анбан",
     "журнал", "лог", "log",
 })
@@ -951,7 +1018,7 @@ async def dispatch_dot_dk_menu_before_gdewtf(message: Message) -> None:
     await command_rank_rule_cmd(message)
 
 
-@gdewtf_router.message(F.text.regexp(r"(?i)^\s*!(?:gde(?:wtf)?|профиль|profile|who|кто|статус|status|права|варны|warns|поиск|search|модеры|сверка|модераторы|mods|города|cities|топ|top|рейтинг|rating|ping|пинг|help|помощь|команды|панель|panel|меню|люди|people|users|участники|варн|warn|снятьварн|снять-варн|анварн|unwarn|снятьварны|снять-варны|warnclear|ник|nick|город|city|амб|amb|rgov|регион|региональный|назначить|modset|снять|modremove|бан|ban|разбан|unban|анбан|журнал|лог|log)(?:\s|$)"))
+@gdewtf_router.message(F.text.regexp(r"(?i)^\s*!(?:gde(?:wtf)?|профиль|profile|who|кто|статус|status|права|варны|warns|поиск|search|модеры|сверка|модераторы|mods|города|cities|топ|top|рейтинг|rating|ping|пинг|help|помощь|команды|панель|panel|меню|люди|people|users|участники|варн|warn|снятьварн|снять-варн|анварн|unwarn|снятьварны|снять-варны|warnclear|ник|nick|город|city|амб|amb|модератор|рег|rgov|регион|региональный|назначить|modset|снять|modremove|бан|ban|разбан|unban|анбан|журнал|лог|log)(?:\s|$)"))
 async def gdewtf_command(message: Message) -> None:
     if not message.from_user:
         return
@@ -1612,19 +1679,48 @@ async def gdewtf_command(message: Message) -> None:
                 await _gdewtf_safe_answer(message, "Формат: <code>!город @username city_id</code> (для удаления укажи -)")
                 return
             data = await _api("POST", "/city", body={"q": rest[0], "city": "" if rest[1] == "-" else rest[1]})
-        elif action in {"амб", "amb"}:
-            if not rest:
-                await _gdewtf_safe_answer(message, "Формат: <code>!амб @username</code>")
-                return
-            data = await _api("POST", "/mod/set", body={"q": rest[0], "amb": True})
-        elif action in {"rgov", "регион", "региональный"}:
+        elif action in {"амб", "amb", "модератор"}:
             if len(rest) < 2:
-                await _gdewtf_safe_answer(message, "Формат: <code>!rgov @username регион [city1,city2]</code>")
+                syntax = "!амб @username Омск" if action in {"амб", "amb"} else "!модератор @username Ростов"
+                await _gdewtf_safe_answer(message, f"Формат: <code>{syntax}</code> или ответь на сообщение: <code>!{action} город</code>.")
                 return
-            body = {"q": rest[0], "rgov": True, "region": rest[1]}
-            if len(rest) > 2:
-                body["cities"] = [city for city in re.split(r"[,;]+", rest[2]) if city]
-            data = await _api("POST", "/mod/set", body=body)
+            city, city_data = await _gdewtf_resolve_city_name(" ".join(rest[1:]))
+            if city is None:
+                if city_data.get("error") == "ambiguous_city":
+                    detail = "Название неоднозначно: " + ", ".join(city_data.get("candidates") or [])
+                elif city_data.get("error") == "city_not_found":
+                    detail = f"Город «{_clean(' '.join(rest[1:]))}» отсутствует в справочнике GDE.WTF. Посмотри <code>!города</code>."
+                else:
+                    detail = _error_text(city_data)
+                await _gdewtf_safe_answer(message, "⚠️ " + detail)
+                return
+            body = {"q": rest[0], "city": city.get("id"), "perms": "Лента"}
+            if action in {"амб", "amb"}:
+                body["amb"] = True
+            data = await _api(
+                "POST", "/mod/set", body=body,
+                request_timeout=aiohttp.ClientTimeout(total=2.5, connect=0.7, sock_read=1.8),
+            )
+        elif action in {"рег", "rgov", "регион", "региональный"}:
+            if len(rest) < 2:
+                await _gdewtf_safe_answer(message, "Формат: <code>!рег @username Ростовская область</code> или ответь на сообщение: <code>!рег Ростовская область</code>.")
+                return
+            region_name = " ".join(rest[1:])
+            region, region_city_ids, region_data = await _gdewtf_resolve_region_name(region_name)
+            if region is None:
+                if region_data.get("error") == "region_not_found":
+                    detail = f"Регион «{_clean(region_name)}» отсутствует в справочнике GDE.WTF. Проверь <code>!города</code>."
+                else:
+                    detail = _error_text(region_data)
+                await _gdewtf_safe_answer(message, "⚠️ " + detail)
+                return
+            body = {"q": rest[0], "rgov": True, "region": region, "perms": "Старший"}
+            if region_city_ids:
+                body["cities"] = region_city_ids
+            data = await _api(
+                "POST", "/mod/set", body=body,
+                request_timeout=aiohttp.ClientTimeout(total=2.5, connect=0.7, sock_read=1.8),
+            )
         elif action in {"назначить", "modset"}:
             if not rest:
                 await _gdewtf_safe_answer(message, "Формат: <code>!назначить @username [city_id] [права]</code>")
@@ -1695,7 +1791,7 @@ async def gdewtf_command(message: Message) -> None:
                 result = f"✅ Все предупреждения сняты · <code>{_clean(pub)}</code> · осталось: <b>{_clean(data.get('warns_count', 0))}</b>"
             elif action in {"ник", "nick"}:
                 result = f"✅ Ник обновлён: <b>{_clean(data.get('nick'))}</b> · <code>{_clean(pub)}</code>"
-            elif action in {"город", "city", "амб", "amb", "rgov", "регион", "региональный", "назначить", "modset"}:
+            elif action in {"город", "city", "амб", "amb", "модератор", "рег", "rgov", "регион", "региональный", "назначить", "modset"}:
                 result = "✅ Изменения сохранены.\n" + (_profile(mod) if mod else f"Модератор: <code>{_clean(pub)}</code>")
             elif action in {"снять", "modremove"}:
                 result = f"✅ Модератор снят с должности · <code>{_clean(pub)}</code>"
