@@ -728,6 +728,7 @@ _GDEWTF_COMMAND_ACTIONS = _GDEWTF_READONLY_ACTIONS | frozenset({
     "снятьварны", "снять-варны", "warnclear", "ник", "nick", "город", "city",
     "амб", "amb", "rgov", "регион", "региональный", "назначить", "modset",
     "снять", "modremove", "бан", "ban", "разбан", "unban", "анбан",
+    "журнал", "лог", "log",
 })
 
 
