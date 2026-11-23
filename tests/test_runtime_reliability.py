@@ -231,5 +231,48 @@ class RuntimeReliabilityRegressionTests(unittest.TestCase):
             checked += 1
         self.assertGreater(checked, 0)
 
+
+    def test_city_assignment_commands_are_registered_and_accept_reply_targets(self):
+        self.assertIn('"модератор", "рег", "rgov"', SOURCE)
+        start = SOURCE.index("target_actions = {")
+        end = SOURCE.index("if replied_user and action in target_actions:", start)
+        target_actions = SOURCE[start:end]
+        self.assertIn('"модератор"', target_actions)
+        self.assertIn('"рег"', target_actions)
+        decorator_start = SOURCE.index("async def gdewtf_command")
+        decorator = SOURCE[SOURCE.rfind("@gdewtf_router.message", 0, decorator_start):decorator_start]
+        self.assertIn("|модератор|рег|", decorator)
+
+    def test_city_resolver_uses_cached_api_directory_and_rejects_ambiguous_names(self):
+        start = SOURCE.index("async def _gdewtf_resolve_city_name(")
+        end = SOURCE.index("async def _gdewtf_resolve_region_name(", start)
+        body = SOURCE[start:end]
+        self.assertIn('await _gdewtf_city_directory()', body)
+        self.assertIn('city.get("id")', body)
+        self.assertIn('"ambiguous_city"', body)
+        self.assertIn('"city_not_found"', body)
+
+    def test_region_resolver_uses_exact_region_and_directory_city_ids(self):
+        start = SOURCE.index("async def _gdewtf_resolve_region_name(")
+        end = SOURCE.index("def _gdewtf_profile_matches_telegram(", start)
+        body = SOURCE[start:end]
+        self.assertIn('city.get("region")', body)
+        self.assertIn('city.get("id")', body)
+        self.assertIn('return canonical, sorted(city_ids)', body)
+
+    def test_ambassador_moderator_and_regional_commands_send_role_specific_payloads(self):
+        start = SOURCE.index('elif action in {"амб", "amb", "модератор"}:')
+        end = SOURCE.index('elif action in {"назначить", "modset"}:', start)
+        body = SOURCE[start:end]
+        self.assertIn('_gdewtf_resolve_city_name(" ".join(rest[1:]))', body)
+        self.assertIn('"city": city.get("id")', body)
+        self.assertIn('"perms": "Лента"', body)
+        self.assertIn('body["amb"] = True', body)
+        self.assertIn('elif action in {"рег", "rgov", "регион", "региональный"}:', body)
+        self.assertIn('"rgov": True', body)
+        self.assertIn('"perms": "Старший"', body)
+        self.assertIn('body["cities"] = region_city_ids', body)
+        self.assertIn('await _api("POST", "/mod/set", body=body', body)
+
 if __name__ == "__main__":
     unittest.main()
