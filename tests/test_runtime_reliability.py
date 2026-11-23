@@ -248,7 +248,7 @@ class RuntimeReliabilityRegressionTests(unittest.TestCase):
         self.assertIn('"рег"', target_actions)
         decorator_start = SOURCE.index("async def gdewtf_command")
         decorator = SOURCE[SOURCE.rfind("@gdewtf_router.message", 0, decorator_start):decorator_start]
-        self.assertIn("|модератор|рег|", decorator)
+        self.assertIn("|модер|модератор|рег|", decorator)
 
     def test_city_resolver_uses_cached_api_directory_and_rejects_ambiguous_names(self):
         start = SOURCE.index("async def _gdewtf_resolve_city_name(")
