@@ -679,7 +679,8 @@ async def _gdewtf_resolve_city_name(value: str) -> tuple[dict[str, Any] | None, 
         return None, data
     matches = [
         city for city in cities
-        if query in {
+        if str(city.get("id") or "").strip()
+        and query in {
             _gdewtf_location_key(city.get("name")),
             _gdewtf_location_key(city.get("id")),
         }
