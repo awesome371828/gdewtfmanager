@@ -103,12 +103,12 @@ class RuntimeReliabilityRegressionTests(unittest.TestCase):
 
     def test_profile_activity_counter_is_scoped_to_current_chat_and_user(self):
         start = SOURCE.index("def _gdewtf_chat_message_count(")
-        end = SOURCE.index("\\n\\ndef _profile(", start)
+        end = SOURCE.index("\n\ndef _profile(", start)
         body = SOURCE[start:end]
         self.assertIn('db_rows("bot_activity_daily", 5000, order="day", chat_id=cid, user_id=uid)', body)
         self.assertIn('db_one("bot_users", chat_id=cid, user_id=uid)', body)
         profile_start = SOURCE.index("def _profile(")
-        profile_end = SOURCE.index("\\n\\ndef _help()", profile_start)
+        profile_end = SOURCE.index("\n\ndef _help()", profile_start)
         profile = SOURCE[profile_start:profile_end]
         self.assertIn("СТАТИСТИКА ПРОФИЛЯ ИМЕННО В ЭТОМ ЧАТЕ", profile)
         self.assertIn("рейтинг и варны выше — данные GDE.WTF", profile)
