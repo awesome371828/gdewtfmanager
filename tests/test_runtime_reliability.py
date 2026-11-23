@@ -152,9 +152,9 @@ class RuntimeReliabilityRegressionTests(unittest.TestCase):
             if not isinstance(pattern, ast.Constant) or not isinstance(pattern.value, str):
                 continue
             value = pattern.value
-            value = re.sub(r"^\\(\\?[aiLmsux-]+\\)", "", value)
+            value = re.sub(r"^\(\?[aiLmsux-]+\)", "", value)
             self.assertTrue(
-                value.startswith("^") or value.startswith(r"\\A"),
+                value.startswith("^") or value.startswith(r"\A"),
                 f"Command regexp is not anchored at message start: {pattern.value!r}",
             )
             checked += 1
