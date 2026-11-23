@@ -3499,7 +3499,7 @@ async def group_menu_text_fallback(message: Message) -> None:
 
 @router.message(F.text == "💠 Профиль")
 @router.message(Command("profile"))
-@router.message(F.text.regexp(r"(?i)^[.!/]?профиль(?:\s|$)"))
+@router.message(F.text.regexp(r"(?i)^[./]?профиль(?:\s|$)"))
 async def profile(message: Message) -> None:
     """Local chat profile: one read from this chat's bot_users row, no GDE API."""
     if not message.from_user:
