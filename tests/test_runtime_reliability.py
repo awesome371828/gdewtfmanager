@@ -169,6 +169,7 @@ class RuntimeReliabilityRegressionTests(unittest.TestCase):
         end = SOURCE.index('@router.message(Command("time"))', start)
         body = SOURCE[start:end]
         # The helper accepts positional (chat_id, user_id); verify the actual call.
+        self.assertIn("_chat_profile_stats, message.chat.id, message.from_user.id", body)
         self.assertNotIn("ensure_user(", body)
         self.assertNotIn("active_warn_count(", body)
         self.assertNotIn("_api(", body)
