@@ -517,7 +517,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIsInstance(command_filter.func, ast.Attribute)
         self.assertEqual(command_filter.func.attr, "regexp")
         pattern = command_filter.args[0].value
-        self.assertTrue(pattern.startswith(r"(?i)^\\s*!"), pattern)
+        self.assertTrue(pattern.startswith(r"(?i)^\s*!"), pattern)
         self.assertIn("профиль", pattern)
         self.assertIn("бан", pattern)
 
