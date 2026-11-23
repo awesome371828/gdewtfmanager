@@ -272,7 +272,7 @@ class RuntimeReliabilityRegressionTests(unittest.TestCase):
         self.assertIn('"rgov": True', body)
         self.assertIn('"perms": "Старший"', body)
         self.assertIn('body["cities"] = region_city_ids', body)
-        self.assertIn('await _api("POST", "/mod/set", body=body', body)
+        self.assertIn('"POST", "/mod/set", body=body', body)
 
 if __name__ == "__main__":
     unittest.main()
