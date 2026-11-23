@@ -499,13 +499,13 @@ def _help() -> str:
         "<code>!бан q [причина]</code> · <code>!разбан q</code> / <code>!анбан q</code> · <code>!снять q</code>\n\n"
         "<b>Управление командой</b>\n"
         "<code>!назначить q [город] [права]</code> · <code>!ник q новый_ник</code> / <code>!ник q -</code>\n"
-        "<code>!амб q город</code> · <code>!модератор q город</code> · <code>!рег q регион</code>\n"
+        "<code>!амб q город</code> · <code>!модер q город</code> · <code>!рег q регион</code>\n"
         "<code>!город q city_id</code> / <code>!город q -</code> · <code>!rgov q регион [city1,city2]</code>\n\n"
         "<b>Ответ на сообщение</b>\n"
         "Ответь на сообщение модератора командой без q: <code>!профиль</code>, <code>!варны</code>, "
         "<code>!варн причина</code>, <code>!снять</code>, <code>!бан причина</code>, "
         "<code>!разбан</code>, <code>!снятьварн [номер]</code>, <code>!снятьварны</code>, "
-        "<code>!ник новый_ник</code>, <code>!амб город</code>, <code>!модератор город</code>, <code>!рег регион</code>, <code>!город city_id</code>, <code>!амб</code>, <code>!назначить</code>.\n"
+        "<code>!ник новый_ник</code>, <code>!амб город</code>, <code>!модер город</code>, <code>!рег регион</code>, <code>!город city_id</code>, <code>!амб</code>, <code>!назначить</code>.\n"
         "Вместо q можно указать @username, Telegram ID или RND-код. Доступ определяется ролью и правами GDE.WTF."
     )
     return format_panel("КОМАНДЫ GDE.WTF", body, "GDE.WTF · справочник")
@@ -1212,7 +1212,7 @@ async def gdewtf_command(message: Message) -> None:
         "профиль", "who", "mod", "варны", "кто", "статус", "права",
         "варн", "warn", "снять", "modremove", "снятьварн", "снять-варн", "анварн", "unwarn",
         "снятьварны", "снять-варны", "warnclear", "ник", "nick", "город", "city", "журнал", "лог", "log",
-        "амб", "amb", "модератор", "рег", "rgov", "регион", "региональный", "назначить", "modset",
+        "амб", "amb", "модер", "модератор", "рег", "rgov", "регион", "региональный", "назначить", "modset",
         "бан", "ban", "разбан", "unban", "анбан",
     }
     if replied_user and action in target_actions:
