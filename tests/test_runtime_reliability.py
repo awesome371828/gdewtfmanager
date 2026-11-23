@@ -58,8 +58,8 @@ class RuntimeReliabilityRegressionTests(unittest.TestCase):
         start = SOURCE.index("async def _gdewtf_authorize_locked")
         end = SOURCE.index("async def _gdewtf_safe_answer", start)
         body = SOURCE[start:end]
-        self.assertIn("Не удалось подтвердить твои права в GDE.WTF", body)
-        self.assertIn("Это не означает, что прав нет", body)
+        self.assertIn("Нет подтверждённых прав на эту команду", body)
+        self.assertIn("Это не доказывает отсутствие прав", body)
         self.assertIn("доступ не предоставлен без проверки", body)
         self.assertNotIn('return False, "⚠️ " + _error_text(transport_failure)', body)
 
