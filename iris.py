@@ -465,44 +465,10 @@ async def _gdewtf_fetch_people_count() -> tuple[int | None, str | None]:
         detail += " При этом API сообщает " + ", ".join(available) + "."
     return None, detail
 
-def _gdewtf_chat_message_count(chat_id: int, telegram_user_id: Any) -> int | None:
-    """Return this member's all-time message count in this exact Telegram chat."""
-    if db is None:
-        return None
-    try:
-        uid = int(telegram_user_id)
-        cid = int(chat_id)
-    except (TypeError, ValueError):
-        return None
-    if uid <= 0:
-        return None
-    rows = db_rows("bot_activity_daily", 5000, order="day", chat_id=cid, user_id=uid)
-    if rows:
-        total = 0
-        for row in rows:
-            try:
-                total += max(0, int(row.get("messages") or 0))
-            except (TypeError, ValueError):
-                continue
-        return total
-    # Compatibility fallback for installations where only bot_users is populated.
-    member = db_one("bot_users", chat_id=cid, user_id=uid)
-    if member is not None:
-        try:
-            return max(0, int(member.get("messages") or 0))
-        except (TypeError, ValueError):
-            return 0
-    return 0
-
-
-def _profile(mod: dict[str, Any], chat_message_count: int | None = None, chat_title: str | None = None) -> str:
+def _profile(mod: dict[str, Any]) -> str:
+    """Render only GDE.WTF data; local chat activity belongs to plain /profile."""
     warns = mod.get("warns") or []
     perms = mod.get("perms") or []
-    chat_label = _clean(chat_title or "текущий чат")
-    chat_messages = (
-        f"<b>{chat_message_count:,}</b>".replace(",", " ")
-        if chat_message_count is not None else "<i>статистика временно недоступна</i>"
-    )
     body = (
         f"{_mod_line(mod)}\n"
         f"🆔 Telegram ID: <code>{_clean(mod.get('tg_id') or mod.get('telegram_id'))}</code>\n"
@@ -513,14 +479,9 @@ def _profile(mod: dict[str, Any], chat_message_count: int | None = None, chat_ti
         f"🟢 Онлайн: {_clean('да' if mod.get('online') else 'нет')} · смена: {_clean('да' if mod.get('on_shift') else 'нет')}\n"
         f"⛔ Бан GDE.WTF: <b>{_clean('да' if mod.get('banned') else 'нет')}</b>\n"
         f"🔐 Права: {_clean(', '.join(map(str, perms)) or '—')}\n"
-        f"💬 О себе: {_clean(mod.get('about'))}\n\n"
-        f"📊 <b>СТАТИСТИКА ПРОФИЛЯ ИМЕННО В ЭТОМ ЧАТЕ</b>\n"
-        f"Чат: <b>{chat_label}</b>\n"
-        f"Сообщений за всё время в этом чате: {chat_messages}\n"
-        "<i>Счётчик относится только к этому Telegram-чату; рейтинг и варны выше — данные GDE.WTF.</i>"
+        f"💬 О себе: {_clean(mod.get('about'))}"
     )
-    return format_panel("ПРОФИЛЬ МОДЕРАТОРА", body, "GDE.WTF · профиль и статистика текущего чата")
-
+    return format_panel("ПРОФИЛЬ GDE.WTF", body, "GDE.WTF · данные API")
 
 
 
@@ -1190,15 +1151,7 @@ async def gdewtf_command(message: Message) -> None:
                         f"Права: <code>{_clean(', '.join(map(str, mod.get('perms') or [])) or '—')}</code>"
                     )
                 else:
-                    profile_telegram_id = (
-                        mod.get("tg_id") or mod.get("telegram_id") or mod.get("telegram_user_id")
-                        or mod.get("user_id") or rest[0]
-                    )
-                    chat_messages = _gdewtf_chat_message_count(message.chat.id, profile_telegram_id)
-                    await _gdewtf_safe_answer(
-                        message,
-                        _profile(mod, chat_messages, message.chat.title or "личный чат"),
-                    )
+                    await _gdewtf_safe_answer(message, _profile(mod))
             else:
                 await _gdewtf_safe_answer(message, "⚠️ " + _error_text(data))
             return
@@ -3548,27 +3501,42 @@ async def group_menu_text_fallback(message: Message) -> None:
 @router.message(Command("profile"))
 @router.message(F.text.regexp(r"(?i)^[.!/]?профиль(?:\s|$)"))
 async def profile(message: Message) -> None:
+    """Local chat profile: one read from this chat's bot_users row, no GDE API."""
     if not message.from_user:
         return
-    chat_id = message.chat.id
-    user = await asyncio.to_thread(ensure_user, message.from_user.id, chat_id, message.from_user.username, message.from_user.full_name)
-    messages = int(user.get("messages", 0))
-    rank = int(user.get("rank", 0))
-    warns = await asyncio.to_thread(active_warn_count, message.chat.id, message.from_user.id)
+    try:
+        user = await asyncio.to_thread(
+            db_one, "bot_users",
+            user_id=message.from_user.id,
+            chat_id=message.chat.id,
+        ) or {}
+        messages = max(0, int(user.get("messages") or 0))
+        rank = max(0, min(5, int(user.get("rank") or 0)))
+        warns = max(0, int(user.get("warns") or 0))
+    except (TypeError, ValueError):
+        messages, rank, warns = 0, 0, 0
     level_name = "Новичок" if messages < 25 else "Участник" if messages < 100 else "Активный" if messages < 500 else "Легенда чата"
     next_goal = next((goal for goal in (25, 100, 500, 1000) if messages < goal), None)
     progress = f"📈 До следующего рубежа: <b>{next_goal - messages}</b> сообщ." if next_goal else "✨ Достигнут высокий рубеж активности!"
-    await message.answer(format_panel(
-        "МОЙ ПРОФИЛЬ",
+    text = format_panel(
+        "МОЙ ПРОФИЛЬ · ЭТОТ ЧАТ",
         f"🪪 {profile_link(message.from_user.id, message.from_user.full_name, message.from_user.username)}\n"
-        f"💬 Сообщений: <b>{messages:,}</b>\n"
-        f"🏅 Ранг: <b>{role_name(rank)}</b> · <code>{rank}/5</code>\n"
+        f"💬 Сообщений в этом чате: <b>{messages:,}</b>\n"
+        f"🏅 Ранг чата: <b>{role_name(rank)}</b> · <code>{rank}/5</code>\n"
         f"✨ Уровень: <b>{level_name}</b>\n"
-        f"⚠️ Активных предупреждений: <b>{warns}</b>\n"
+        f"⚠️ Предупреждений в этом чате: <b>{warns}</b>\n"
         f"{progress}\n\n"
-        "Команды: <code>кто я</code> · <code>топ</code> · <code>активность</code>",
-        "Профиль участника · данные этого чата",
-    ))
+        "Это локальная статистика текущего Telegram-чата. Для профиля GDE.WTF используй <code>!профиль</code>.",
+        "Статистика участника · только текущий чат",
+    )
+    try:
+        await message.answer(text)
+    except (TelegramNetworkError, TelegramServerError, TelegramRetryAfter) as exc:
+        # Telegram may time out after accepting a send; never retry and risk duplicates.
+        log.warning(
+            "Local profile reply delivery uncertain (chat=%s user=%s error=%s); not retrying",
+            message.chat.id, message.from_user.id, type(exc).__name__,
+        )
 
 @router.message(Command("time"))
 @router.message(F.text.regexp(r"(?i)^[.!/]?(?:время|дата)(?:\s|$)"))
