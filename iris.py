@@ -2579,6 +2579,23 @@ def db_one(table: str, **filters: Any) -> dict | None:
         return rows[0] if rows else None
     return _db_read_with_retry(table, "select", query)
 
+def _chat_profile_stats(chat_id: int, user_id: int) -> dict[str, Any]:
+    """Fetch only the three counters needed for the local profile."""
+    if db is None:
+        return {}
+    def query():
+        rows = (
+            db.table("bot_users")
+            .select("messages,rank,warns")
+            .eq("chat_id", int(chat_id))
+            .eq("user_id", int(user_id))
+            .limit(1)
+            .execute()
+            .data or []
+        )
+        return rows[0] if rows else {}
+    return _db_read_with_retry("bot_users", "profile_stats", query) or {}
+
 def db_rows(table: str, limit: int = 20, order: str | None = None, **filters: Any) -> list[dict]:
     if db is None:
         return []
@@ -3506,10 +3523,8 @@ async def profile(message: Message) -> None:
         return
     try:
         user = await asyncio.to_thread(
-            db_one, "bot_users",
-            user_id=message.from_user.id,
-            chat_id=message.chat.id,
-        ) or {}
+            _chat_profile_stats, message.chat.id, message.from_user.id
+        )
         messages = max(0, int(user.get("messages") or 0))
         rank = max(0, min(5, int(user.get("rank") or 0)))
         warns = max(0, int(user.get("warns") or 0))
