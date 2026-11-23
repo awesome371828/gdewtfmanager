@@ -488,7 +488,7 @@ def _profile(mod: dict[str, Any]) -> str:
 def _help() -> str:
     body = (
         "<b>Просмотр</b>\n"
-        "<code>!профиль</code> · свой профиль; <code>!профиль q</code> · профиль @username/ID/RND; статистика сообщений — только в текущем чате\n"
+        "<code>!профиль</code> · профиль и статистика GDE.WTF; <code>!профиль q</code> · профиль @username/ID/RND\n"
         "<code>!кто q</code> · <code>!статус q</code> · <code>!права q</code>\n"
         "<code>!варны q</code> · <code>!журнал [q] [кол-во]</code> · <code>!поиск слово</code>\n"
         "<code>!модераторы [city_id]</code> · <code>!модеры</code> · <code>!города</code> · <code>!топ [city_id]</code> · <code>!ping</code>\n"
