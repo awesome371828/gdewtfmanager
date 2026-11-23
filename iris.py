@@ -1705,7 +1705,7 @@ async def gdewtf_command(message: Message) -> None:
             if len(rest) < 2:
                 await _gdewtf_safe_answer(message, "Формат: <code>!рег @username Ростовская область</code> или ответь на сообщение: <code>!рег Ростовская область</code>.")
                 return
-            region_name = " ".join(rest[1:])
+            region_name = " ".join(rest[1:]) if action == "рег" else rest[1]
             region, region_city_ids, region_data = await _gdewtf_resolve_region_name(region_name)
             if region is None:
                 if region_data.get("error") == "region_not_found":
@@ -1715,7 +1715,13 @@ async def gdewtf_command(message: Message) -> None:
                 await _gdewtf_safe_answer(message, "⚠️ " + detail)
                 return
             body = {"q": rest[0], "rgov": True, "region": region, "perms": "Старший"}
-            if region_city_ids:
+            if action == "рег":
+                if region_city_ids:
+                    body["cities"] = region_city_ids
+            elif len(rest) > 2:
+                # Keep the legacy !rgov q region city1,city2 form working.
+                body["cities"] = [city.strip() for city in re.split(r"[,;]+", " ".join(rest[2:])) if city.strip()]
+            elif region_city_ids:
                 body["cities"] = region_city_ids
             data = await _api(
                 "POST", "/mod/set", body=body,
