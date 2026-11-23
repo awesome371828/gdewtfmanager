@@ -268,11 +268,11 @@ class RuntimeReliabilityRegressionTests(unittest.TestCase):
         self.assertIn('return canonical, sorted(city_ids)', body)
 
     def test_ambassador_moderator_and_regional_commands_send_role_specific_payloads(self):
-        start = SOURCE.index('elif action in {"амб", "amb", "модератор"}:')
+        start = SOURCE.index('elif action in {"амб", "amb", "модер", "модератор"}:')
         end = SOURCE.index('elif action in {"назначить", "modset"}:', start)
         body = SOURCE[start:end]
-        self.assertIn('_gdewtf_resolve_city_name(" ".join(rest[1:]))', body)
-        self.assertIn('"city": city.get("id")', body)
+        self.assertIn('city_name = " ".join(rest[1:]).strip()', body)
+        self.assertIn('"city": city_name', body)
         self.assertIn('"perms": "Лента"', body)
         self.assertIn('body["amb"] = True', body)
         self.assertIn('elif action in {"рег", "rgov", "регион", "региональный"}:', body)
@@ -281,13 +281,13 @@ class RuntimeReliabilityRegressionTests(unittest.TestCase):
         self.assertIn('body["cities"] = region_city_ids', body)
         self.assertIn('"POST", "/mod/set", body=body', body)
 
-    def test_city_assignment_reports_directory_outage_without_claiming_permission_denial(self):
-        start = SOURCE.index('elif action in {"амб", "amb", "модератор"}:')
+    def test_city_assignment_does_not_depend_on_cities_directory(self):
+        start = SOURCE.index('elif action in {"амб", "amb", "модер", "модератор"}:')
         end = SOURCE.index('elif action in {"рег", "rgov"', start)
         body = SOURCE[start:end]
-        self.assertIn('city_data.get("error") == "api_unavailable"', body)
-        self.assertIn("Назначение НЕ выполнено", body)
-        self.assertIn("это сбой внешнего api", body.casefold())
+        self.assertNotIn('_gdewtf_resolve_city_name', body)
+        self.assertIn('city_name = " ".join(rest[1:]).strip()', body)
+        self.assertIn('"city": city_name', body)
 
     def test_region_assignment_reports_directory_outage_without_claiming_permission_denial(self):
         start = SOURCE.index('elif action in {"рег", "rgov"')
