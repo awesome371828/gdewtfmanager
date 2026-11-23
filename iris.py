@@ -1813,6 +1813,12 @@ async def gdewtf_command(message: Message) -> None:
                     detail = "Название неоднозначно: " + ", ".join(city_data.get("candidates") or [])
                 elif city_data.get("error") == "city_not_found":
                     detail = f"Город «{_clean(' '.join(rest[1:]))}» отсутствует в справочнике GDE.WTF. Посмотри <code>!города</code>."
+                elif city_data.get("error") == "api_unavailable":
+                    detail = (
+                        "Справочник городов GDE.WTF сейчас не отвечает. "
+                        "Назначение НЕ выполнено. Это сбой внешнего API, а не ошибка прав. "
+                        "Повтори команду после восстановления GDE.WTF."
+                    )
                 else:
                     detail = _error_text(city_data)
                 await _gdewtf_safe_answer(message, "⚠️ " + detail)
@@ -1833,6 +1839,12 @@ async def gdewtf_command(message: Message) -> None:
             if region is None:
                 if region_data.get("error") == "region_not_found":
                     detail = f"Регион «{_clean(region_name)}» отсутствует в справочнике GDE.WTF. Проверь <code>!города</code>."
+                elif region_data.get("error") == "api_unavailable":
+                    detail = (
+                        "Справочник городов GDE.WTF сейчас не отвечает. "
+                        "Региональное назначение НЕ выполнено. Это сбой внешнего API, "
+                        "а не ошибка прав. Повтори команду после восстановления GDE.WTF."
+                    )
                 else:
                     detail = _error_text(region_data)
                 await _gdewtf_safe_answer(message, "⚠️ " + detail)
