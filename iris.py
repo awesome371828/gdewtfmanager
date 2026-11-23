@@ -930,16 +930,16 @@ async def _gdewtf_authorize_locked(user_id: int, action: str, username: str | No
         detail = str(transport_failure.get("detail") or "")
         if detail == "timeout":
             return False, (
-                "⛔ Не удалось подтвердить твои права в GDE.WTF: сервис не ответил на проверку. "
-                "Команда не выполнена. Это не означает, что прав нет — проверку нужно повторить позже."
+                "⛔ Нет подтверждённых прав на эту команду: GDE.WTF не ответил на проверку доступа. "
+                "Команда не выполнена. Это не доказывает отсутствие прав — повтори позже."
             )
         if detail == "connection":
             return False, (
-                "⛔ Не удалось подтвердить твои права в GDE.WTF: нет соединения с сервисом. "
+                "⛔ Нет подтверждённых прав на эту команду: нет соединения с GDE.WTF. "
                 "Команда не выполнена; доступ не предоставлен без проверки."
             )
         return False, (
-            "⛔ Не удалось подтвердить твои права в GDE.WTF. "
+            "⛔ Нет подтверждённых прав на эту команду: проверка GDE.WTF не завершилась. "
             "Команда не выполнена; доступ не предоставлен без проверки. "
             + _error_text(transport_failure)
         )
@@ -1057,7 +1057,7 @@ async def gdewtf_command(message: Message) -> None:
         authorized, denial = await _gdewtf_authorize(message.from_user.id, action_for_auth, message.from_user.username)
     except Exception:
         log_gdewtf.exception("Could not verify GDE.WTF project permissions for user=%s", message.from_user.id)
-        await _gdewtf_safe_answer(message, "⚠️ Не удалось проверить права в GDE.WTF. Команда не выполнена.")
+        await _gdewtf_safe_answer(message, "⛔ Нет подтверждённых прав на эту команду: проверка доступа завершилась ошибкой. Команда не выполнена.")
         return
     if not authorized:
         await _gdewtf_safe_answer(message, denial)
