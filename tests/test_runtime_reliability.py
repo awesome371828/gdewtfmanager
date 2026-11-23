@@ -1,5 +1,6 @@
 import ast
 import pathlib
+import re
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -135,9 +136,29 @@ class RuntimeReliabilityRegressionTests(unittest.TestCase):
         start = SOURCE.index("_MODERATION_ALIAS_GROUPS = [")
         end = SOURCE.index("@router.message(F.text.regexp", start)
         body = SOURCE[start:end]
-        self.assertIn('(?i)^\\\\s*', body)
+        self.assertIn(r'(?i)^\s*', body)
         self.assertIn('match = pattern.match(raw)', SOURCE)
         self.assertNotIn('(?i).*бан', body)
+
+    def test_every_text_regexp_command_filter_is_anchored_to_message_start(self):
+        tree = ast.parse(SOURCE)
+        checked = 0
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                continue
+            if node.func.attr != "regexp" or not node.args:
+                continue
+            pattern = node.args[0]
+            if not isinstance(pattern, ast.Constant) or not isinstance(pattern.value, str):
+                continue
+            value = pattern.value
+            value = re.sub(r"^\\(\\?[aiLmsux-]+\\)", "", value)
+            self.assertTrue(
+                value.startswith("^") or value.startswith(r"\\A"),
+                f"Command regexp is not anchored at message start: {pattern.value!r}",
+            )
+            checked += 1
+        self.assertGreater(checked, 0)
 
 if __name__ == "__main__":
     unittest.main()
