@@ -465,28 +465,70 @@ async def _gdewtf_fetch_people_count() -> tuple[int | None, str | None]:
         detail += " При этом API сообщает " + ", ".join(available) + "."
     return None, detail
 
-def _profile(mod: dict[str, Any]) -> str:
+def _gdewtf_chat_message_count(chat_id: int, telegram_user_id: Any) -> int | None:
+    """Return this member's all-time message count in this exact Telegram chat."""
+    if db is None:
+        return None
+    try:
+        uid = int(telegram_user_id)
+        cid = int(chat_id)
+    except (TypeError, ValueError):
+        return None
+    if uid <= 0:
+        return None
+    rows = db_rows("bot_activity_daily", 5000, order="day", chat_id=cid, user_id=uid)
+    if rows:
+        total = 0
+        for row in rows:
+            try:
+                total += max(0, int(row.get("messages") or 0))
+            except (TypeError, ValueError):
+                continue
+        return total
+    # Compatibility fallback for installations where only bot_users is populated.
+    member = db_one("bot_users", chat_id=cid, user_id=uid)
+    if member is not None:
+        try:
+            return max(0, int(member.get("messages") or 0))
+        except (TypeError, ValueError):
+            return 0
+    return 0
+
+
+def _profile(mod: dict[str, Any], chat_message_count: int | None = None, chat_title: str | None = None) -> str:
     warns = mod.get("warns") or []
     perms = mod.get("perms") or []
+    chat_label = _clean(chat_title or "текущий чат")
+    chat_messages = (
+        f"<b>{chat_message_count:,}</b>".replace(",", " ")
+        if chat_message_count is not None else "<i>статистика временно недоступна</i>"
+    )
     body = (
         f"{_mod_line(mod)}\n"
-        f"🆔 Telegram ID: <code>{_clean(mod.get('tg_id'))}</code>\n"
+        f"🆔 Telegram ID: <code>{_clean(mod.get('tg_id') or mod.get('telegram_id'))}</code>\n"
         f"🎖 Роль: {_clean(mod.get('role_label') or mod.get('role'))}\n"
         f"🏙 Город: {_clean(mod.get('city_name') or mod.get('city'))}\n"
         f"🗺 Регион: {_clean(mod.get('region'))}\n"
-        f"⭐ Рейтинг: <b>{_clean(mod.get('rating', 0))}</b> · варнов: <b>{_clean(mod.get('warns_count', len(warns)))}</b>\n"
+        f"⭐ Рейтинг GDE.WTF: <b>{_clean(mod.get('rating', 0))}</b> · варнов GDE.WTF: <b>{_clean(mod.get('warns_count', len(warns)))}</b>\n"
         f"🟢 Онлайн: {_clean('да' if mod.get('online') else 'нет')} · смена: {_clean('да' if mod.get('on_shift') else 'нет')}\n"
-        f"⛔ Бан: {_clean('да' if mod.get('banned') else 'нет')}\n"
+        f"⛔ Бан GDE.WTF: <b>{_clean('да' if mod.get('banned') else 'нет')}</b>\n"
         f"🔐 Права: {_clean(', '.join(map(str, perms)) or '—')}\n"
-        f"💬 О себе: {_clean(mod.get('about'))}"
+        f"💬 О себе: {_clean(mod.get('about'))}\n\n"
+        f"📊 <b>СТАТИСТИКА ПРОФИЛЯ ИМЕННО В ЭТОМ ЧАТЕ</b>\n"
+        f"Чат: <b>{chat_label}</b>\n"
+        f"Сообщений за всё время в этом чате: {chat_messages}\n"
+        "<i>Счётчик относится только к этому Telegram-чату; рейтинг и варны выше — данные GDE.WTF.</i>"
     )
-    return format_panel("ПРОФИЛЬ МОДЕРАТОРА", body, "GDE.WTF · данные API")
+    return format_panel("ПРОФИЛЬ МОДЕРАТОРА", body, "GDE.WTF · профиль и статистика текущего чата")
+
+
 
 
 def _help() -> str:
     body = (
         "<b>Просмотр</b>\n"
-        "<code>!профиль q</code> · <code>!кто q</code> · <code>!статус q</code> · <code>!права q</code>\n"
+        "<code>!профиль</code> · свой профиль; <code>!профиль q</code> · профиль @username/ID/RND; статистика сообщений — только в текущем чате\n"
+        "<code>!кто q</code> · <code>!статус q</code> · <code>!права q</code>\n"
         "<code>!варны q</code> · <code>!журнал [q] [кол-во]</code> · <code>!поиск слово</code>\n"
         "<code>!модераторы [city_id]</code> · <code>!модеры</code> · <code>!города</code> · <code>!топ [city_id]</code> · <code>!ping</code>\n"
         "<code>!люди</code> · общее число участников, если API GDE.WTF публикует его в ответе /ping\n\n"
@@ -610,6 +652,11 @@ async def _gdewtf_resolve_mod(query: str) -> tuple[dict[str, Any] | None, dict[s
         if last.get("ok") and candidate:
             return candidate, last
 
+    # A transport/authentication failure is not a definitive miss. Do not
+    # compound an upstream timeout with a second directory request.
+    if str(last.get("error") or "") in {"api_unavailable", "unauthorized", "invalid_api_response", "circuit_open"}:
+        return None, last
+
     # API versions may support only one identifier type on /mod. Search the
     # complete directory and compare all known identity fields locally.
     directory = await _api("GET", "/mods")
@@ -719,7 +766,10 @@ def _gdewtf_is_owner_or_chief(profile: dict[str, Any]) -> bool:
 
 
 async def _gdewtf_authorize(user_id: int, action: str, username: str | None = None) -> tuple[bool, str]:
-    """Authorize configured project controllers locally; resolve other moderators via GDE.WTF."""
+    """Authorize public profile reads, configured controllers, and linked moderators."""
+    # Public profile viewing is read-only and available to every Telegram user.
+    if action in {"профиль", "profile", "who", "mod"}:
+        return True, ""
     # BOT_OWNER_ID is trusted deployment configuration, not a username supplied
     # by Telegram. Keep the owner able to use every command (including recovery
     # and self-target operations) when their own GDE.WTF profile is banned or
@@ -1011,6 +1061,11 @@ async def gdewtf_command(message: Message) -> None:
         if not explicit_target:
             rest = [reply_id] + rest
 
+    # Bare !профиль means the sender's own GDE.WTF profile. Replies still
+    # take precedence and explicit @username/ID/RND targets remain supported.
+    if action in {"профиль", "who", "mod"} and not rest and not replied_user:
+        rest = [str(message.from_user.id)]
+
     # Normalize target commands through one resolver so @username, Telegram
     # numeric ID, and RND-XXXX work the same way across reads and mutations.
     target_actions_for_resolution = {
@@ -1077,7 +1132,10 @@ async def gdewtf_command(message: Message) -> None:
             if not rest:
                 await _gdewtf_safe_answer(message, "Укажи модератора: <code>!варны @username</code>")
                 return
-            mod, data = await _gdewtf_resolve_mod(rest[0])
+            if action in {"профиль", "who", "mod"} and resolved_target_profile is not None:
+                mod, data = resolved_target_profile, {"ok": True, "mod": resolved_target_profile}
+            else:
+                mod, data = await _gdewtf_resolve_mod(rest[0])
             if data.get("ok") and isinstance(mod, dict):
 
                 if action == "варны":
@@ -1117,7 +1175,15 @@ async def gdewtf_command(message: Message) -> None:
                         f"Права: <code>{_clean(', '.join(map(str, mod.get('perms') or [])) or '—')}</code>"
                     )
                 else:
-                    await _gdewtf_safe_answer(message, _profile(mod))
+                    profile_telegram_id = (
+                        mod.get("tg_id") or mod.get("telegram_id") or mod.get("telegram_user_id")
+                        or mod.get("user_id") or rest[0]
+                    )
+                    chat_messages = _gdewtf_chat_message_count(message.chat.id, profile_telegram_id)
+                    await _gdewtf_safe_answer(
+                        message,
+                        _profile(mod, chat_messages, message.chat.title or "личный чат"),
+                    )
             else:
                 await _gdewtf_safe_answer(message, "⚠️ " + _error_text(data))
             return
