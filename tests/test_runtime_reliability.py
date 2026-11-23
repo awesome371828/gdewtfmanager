@@ -281,5 +281,21 @@ class RuntimeReliabilityRegressionTests(unittest.TestCase):
         self.assertIn('body["cities"] = region_city_ids', body)
         self.assertIn('"POST", "/mod/set", body=body', body)
 
+    def test_city_assignment_reports_directory_outage_without_claiming_permission_denial(self):
+        start = SOURCE.index('elif action in {"амб", "amb", "модератор"}:')
+        end = SOURCE.index('elif action in {"рег", "rgov"', start)
+        body = SOURCE[start:end]
+        self.assertIn('city_data.get("error") == "api_unavailable"', body)
+        self.assertIn("Назначение НЕ выполнено", body)
+        self.assertIn("это сбой внешнего API", body.casefold())
+
+    def test_region_assignment_reports_directory_outage_without_claiming_permission_denial(self):
+        start = SOURCE.index('elif action in {"рег", "rgov"')
+        end = SOURCE.index('elif action in {"назначить", "modset"}:', start)
+        body = SOURCE[start:end]
+        self.assertIn('region_data.get("error") == "api_unavailable"', body)
+        self.assertIn("Региональное назначение НЕ выполнено", body)
+        self.assertIn("сбой внешнего API", body.casefold())
+
 if __name__ == "__main__":
     unittest.main()
