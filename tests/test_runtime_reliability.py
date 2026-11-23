@@ -140,6 +140,14 @@ class RuntimeReliabilityRegressionTests(unittest.TestCase):
         self.assertIn('match = pattern.match(raw)', SOURCE)
         self.assertNotIn('(?i).*бан', body)
 
+    def test_invisible_telegram_bidi_marks_are_removed_before_command_dispatch(self):
+        start = SOURCE.index("async def normalize_dot_dk_prefix")
+        end = SOURCE.index("_RANK_CHECKED_TEXT_COMMANDS", start)
+        body = SOURCE[start:end]
+        self.assertIn(r"\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff", body)
+        self.assertIn("_normalize_natural_moderation_phrase(command_text)", body)
+        self.assertIn(r"^\\s*-смс", SOURCE)
+
     def test_every_text_regexp_command_filter_is_anchored_to_message_start(self):
         tree = ast.parse(SOURCE)
         checked = 0
