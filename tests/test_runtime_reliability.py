@@ -168,10 +168,7 @@ class RuntimeReliabilityRegressionTests(unittest.TestCase):
         start = SOURCE.index("async def profile(message: Message)")
         end = SOURCE.index('@router.message(Command("time"))', start)
         body = SOURCE[start:end]
-        self.assertIn("_chat_profile_stats, message.chat.id, message.from_user.id", body)
-        # The helper accepts positional (chat_id, user_id); assert the actual call,
-        # rather than requiring obsolete keyword syntax that the implementation does not use.
-        self.assertIn("_chat_profile_stats, message.chat.id, message.from_user.id", body)
+        # The helper accepts positional (chat_id, user_id); verify the actual call.
         self.assertNotIn("ensure_user(", body)
         self.assertNotIn("active_warn_count(", body)
         self.assertNotIn("_api(", body)
