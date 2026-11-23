@@ -1967,12 +1967,9 @@ async def gdewtf_panel_callback(callback: CallbackQuery) -> None:
         "unban": "разбан", "setmod": "назначить", "remove": "снять",
     }.get(key, "help")
     try:
-        # Never trust the 30-second command cache for button clicks: project access
-        # may have been revoked since the menu was sent. Recheck the live GDE.WTF profile.
-        # The old read-only authorization call was:
-        # await _gdewtf_authorize(callback.from_user.id, auth_action, callback.from_user.username)
-        # Prefixing the action makes every button controller-only.
-        authorized, denial = await _gdewtf_authorize(callback.from_user.id, "panel_button:" + auth_action, callback.from_user.username)
+        # Recheck the live RND profile on every button click and apply the same
+        # per-command permission mapping used by text commands.
+        authorized, denial = await _gdewtf_authorize(callback.from_user.id, auth_action, callback.from_user.username)
         if not authorized:
             # Reject the callback without sending a chat message; unauthorized users
             # cannot use the panel to trigger actions or spam its chat.
