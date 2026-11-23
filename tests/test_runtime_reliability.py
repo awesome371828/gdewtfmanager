@@ -143,6 +143,18 @@ class RuntimeReliabilityRegressionTests(unittest.TestCase):
         self.assertNotIn("bot_activity_daily", profile)
         self.assertNotIn("_gdewtf_chat_message_count", SOURCE)
 
+    def test_bang_profile_is_not_captured_by_local_chat_profile(self):
+        start = SOURCE.index('@router.message(F.text == "💠 Профиль")')
+        end = SOURCE.index('@router.message(Command("time"))', start)
+        local_profile = SOURCE[start:end]
+        self.assertIn(r'(?i)^[./]?профиль(?:\s|$)', local_profile)
+        self.assertNotIn(r'^[.!/]?профиль', local_profile)
+        gde_start = SOURCE.index("async def gdewtf_command")
+        gde_end = SOURCE.index('@gdewtf_router.callback_query(F.data.startswith("gdepanel:"))', gde_start)
+        gde_handler = SOURCE[gde_start:gde_end]
+        self.assertIn('if action in {"профиль", "who", "mod"}', gde_handler)
+        self.assertIn("_profile(mod)", gde_handler)
+
     def test_plain_profile_reads_only_the_current_chat_row_without_writes_or_gde_api(self):
         start = SOURCE.index("async def profile(message: Message)")
         end = SOURCE.index('@router.message(Command("time"))', start)
