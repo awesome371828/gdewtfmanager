@@ -778,7 +778,7 @@ _GDEWTF_CONTROLLER_CODES = frozenset({"RND-LJKD", "RND-8VWA"})
 _GDEWTF_CONTROLLER_TELEGRAM_IDS = frozenset({"6652898792"})
 # Ordinary linked moderators may use only informational commands.
 _GDEWTF_READONLY_ACTIONS = frozenset({
-    "профиль", "profile", "who", "кто", "статус", "status", "права",
+    "gde", "gdewtf", "профиль", "profile", "who", "кто", "статус", "status", "права",
     "варны", "warns", "поиск", "search", "модеры", "сверка", "модераторы", "mods", "города",
     "cities", "топ", "top", "рейтинг", "rating", "ping", "пинг", "help",
     "помощь", "команды", "панель", "panel", "меню", "люди", "people",
