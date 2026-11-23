@@ -580,7 +580,7 @@ _GDEWTF_ACTION_PERMISSIONS: dict[str, str] = {
     "права": "users",
     "модераторы": "maint", "модеры": "maint", "mods": "maint",
     "назначить": "maint", "modset": "maint", "амб": "maint", "amb": "maint",
-    "модератор": "maint", "рег": "maint", "rgov": "maint",
+    "модер": "maint", "модератор": "maint", "рег": "maint", "rgov": "maint",
     "регион": "maint", "региональный": "maint", "ник": "maint",
     "nick": "maint", "город": "maint", "city": "maint",
     "журнал": "events", "лог": "events", "log": "events",
@@ -1920,7 +1920,7 @@ async def gdewtf_command(message: Message) -> None:
                 result = f"✅ Все предупреждения сняты · <code>{_clean(pub)}</code> · осталось: <b>{_clean(data.get('warns_count', 0))}</b>"
             elif action in {"ник", "nick"}:
                 result = f"✅ Ник обновлён: <b>{_clean(data.get('nick'))}</b> · <code>{_clean(pub)}</code>"
-            elif action in {"город", "city", "амб", "amb", "модератор", "рег", "rgov", "регион", "региональный", "назначить", "modset"}:
+            elif action in {"город", "city", "амб", "amb", "модер", "модератор", "рег", "rgov", "регион", "региональный", "назначить", "modset"}:
                 result = "✅ Изменения сохранены.\n" + (_profile(mod) if mod else f"Модератор: <code>{_clean(pub)}</code>")
             elif action in {"снять", "modremove"}:
                 result = f"✅ Модератор снят с должности · <code>{_clean(pub)}</code>"
