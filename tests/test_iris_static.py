@@ -562,6 +562,8 @@ class PearCMStaticRegressionTests(unittest.TestCase):
     def test_gdewtf_api_timeouts_are_bounded_and_warning_reads_are_reused(self):
         self.assertIn("request_timeout: aiohttp.ClientTimeout | None = None", self.source)
         self.assertIn("timeout=request_timeout or _TIMEOUT", self.source)
+        self.assertIn("skip_cache: bool = False", self.source)
+        self.assertIn("and not skip_cache", self.source)
         self.assertIn('success = data.get("success")', self.source)
         self.assertIn("if isinstance(nested, dict):", self.source)
         self.assertIn("elif isinstance(nested, list):", self.source)
@@ -618,7 +620,9 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         auth_start = self.source.index("async def _gdewtf_authorize_locked(")
         auth_end = self.source.index("async def _gdewtf_safe_answer", auth_start)
         auth = self.source[auth_start:auth_end]
-        self.assertIn('_api("GET", "/mod", params={"q": public_code}', auth)
+        self.assertIn('params={"q": public_code}', auth)
+        self.assertIn('"GET", "/mod"', auth)
+        self.assertIn("skip_cache=True", auth)
         self.assertIn("_gdewtf_public_code(rnd_profile)", auth)
         self.assertIn("_gdewtf_profile_matches_telegram(rnd_profile, user_id, username)", auth)
         self.assertIn("_gdewtf_required_permission(action)", auth)
