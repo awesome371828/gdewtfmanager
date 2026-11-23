@@ -2967,6 +2967,15 @@ async def require_admin(message: Message, min_rank: int = 1) -> bool:
     if not message.from_user or not is_group(message):
         await message.answer("Эта команда работает в группе.")
         return False
+    # The configured bot owner and separately verified GDE.WTF controller
+    # are trusted emergency operators in every group. Resolve them before any
+    # per-chat PostgreSQL or Telegram membership lookup; a cold settings read
+    # must never add a second to the owner's moderation commands.
+    if (
+        message.from_user.id == OWNER_ID
+        or str(message.from_user.id) in _GDEWTF_CONTROLLER_TELEGRAM_IDS
+    ):
+        return True
     # .дк must actually restrict a command even for Telegram admins; the chat
     # creator and configured bot owner remain emergency overrides.
     key = moderation_command_key(message)
@@ -4604,17 +4613,26 @@ async def delete_message_cmd(message: Message) -> None:
                 )
                 return
             target_message = message.reply_to_message
-            target_error = None
-            try:
-                await target_message.delete()
-            except Exception as exc:
-                target_error = exc
-                log.warning("Could not delete replied-to message chat=%s message=%s: %s",
-                            message.chat.id, target_message.message_id, exc)
-            try:
-                await message.delete()
-            except Exception as exc:
-                log.debug("Could not delete reply-delete command: %s", exc)
+
+            async def delete_one_message(item: Message) -> Exception | None:
+                try:
+                    await item.delete()
+                    return None
+                except Exception as exc:
+                    return exc
+
+            # These independent Telegram API calls run concurrently.
+            target_error, command_error = await asyncio.gather(
+                delete_one_message(target_message),
+                delete_one_message(message),
+            )
+            if target_error is not None:
+                log.warning(
+                    "Could not delete replied-to message chat=%s message=%s: %s",
+                    message.chat.id, target_message.message_id, target_error,
+                )
+            if command_error is not None:
+                log.debug("Could not delete reply-delete command: %s", command_error)
             if target_error is not None:
                 await safe_error(message, target_error)
             else:
