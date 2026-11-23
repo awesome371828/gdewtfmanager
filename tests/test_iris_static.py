@@ -607,7 +607,7 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn("telegram_identity_mismatch", auth)
         self.assertIn("_gdewtf_profile_matches_telegram(candidate, user_id, username)", auth)
 
-    def test_gdewtf_bot_mutations_are_restricted_to_designated_controllers(self):
+    def test_gdewtf_commands_use_verified_rnd_profiles_and_per_command_permissions(self):
         helper_start = self.source.index("def _gdewtf_is_designated_controller(")
         helper_end = self.source.index("def _gdewtf_is_owner_or_chief(", helper_start)
         helper = self.source[helper_start:helper_end]
@@ -615,17 +615,36 @@ class PearCMStaticRegressionTests(unittest.TestCase):
         self.assertIn("if values & _GDEWTF_CONTROLLER_CODES:", helper)
         self.assertIn("str(telegram_id) in _GDEWTF_CONTROLLER_TELEGRAM_IDS", helper)
         self.assertIn("_GDEWTF_CONTROLLER_TELEGRAM_IDS", helper)
-        auth_start = self.source.index("async def _gdewtf_authorize(")
+        auth_start = self.source.index("async def _gdewtf_authorize_locked(")
         auth_end = self.source.index("async def _gdewtf_safe_answer", auth_start)
         auth = self.source[auth_start:auth_end]
-        self.assertIn("_gdewtf_is_designated_controller(mod, user_id)", auth)
-        self.assertIn("if action in _GDEWTF_READONLY_ACTIONS:", auth)
+        self.assertIn('_api("GET", "/mod", params={"q": public_code}', auth)
+        self.assertIn("_gdewtf_public_code(rnd_profile)", auth)
+        self.assertIn("_gdewtf_profile_matches_telegram(rnd_profile, user_id, username)", auth)
+        self.assertIn("_gdewtf_required_permission(action)", auth)
+        self.assertIn("required_permission not in actual_permissions", auth)
         self.assertIn("_GDEWTF_ACCESS_CACHE[user_id]", auth)
         callback_start = self.source.index('@gdewtf_router.callback_query(F.data.startswith("gdepanel:"))')
         callback_end = self.source.index("if not BOT_TOKEN", callback_start)
         callback = self.source[callback_start:callback_end]
         self.assertIn('await _gdewtf_authorize(callback.from_user.id, "panel_button:" + auth_action, callback.from_user.username)', callback)
         self.assertIn("reply_markup=_gdewtf_panel_keyboard()", callback)
+
+    def test_gdewtf_command_permissions_map_to_api_permission_codes(self):
+        start = self.source.index("_GDEWTF_ACTION_PERMISSIONS:")
+        end = self.source.index("def _gdewtf_required_permission", start)
+        mapping = self.source[start:end]
+        self.assertIn('"бан": "users"', mapping)
+        self.assertIn('"варн": "marks"', mapping)
+        self.assertIn('"назначить": "maint"', mapping)
+        self.assertIn('"журнал": "events"', mapping)
+        self.assertIn('"топ": "stats"', mapping)
+
+    def test_gdewtf_public_code_requires_exact_rnd_format(self):
+        start = self.source.index("def _gdewtf_public_code(")
+        end = self.source.index("_GDEWTF_ACTION_PERMISSIONS:", start)
+        helper = self.source[start:end]
+        self.assertIn('re.fullmatch(r"RND-[A-Z0-9]{4}", value)', helper)
 
 
     def test_gdewtf_auth_lookups_are_serialized_and_outage_damped(self):
@@ -646,7 +665,6 @@ class PearCMStaticRegressionTests(unittest.TestCase):
             '(mod.get("banned") is True or mod.get("active") is False) and not is_designated_controller',
             auth,
         )
-        self.assertIn("otherwise a self-ban deadlocks", auth)
         self.assertIn('"POST", "/ban", body={"q": rest[0], "ban": False}', self.source)
         self.assertIn('data = await _api("POST", "/warn/clear", body={"q": q})', self.source)
 
