@@ -770,13 +770,13 @@ def _gdewtf_profile_matches_telegram(profile: dict[str, Any], user_id: int, user
     return bool(username and username.strip().casefold().lstrip("@") in values)
 
 
-# Only these exact GDE.WTF public profile codes may perform mutations or use buttons.
+# These exact public profile codes receive the full controller override; other moderators use per-action API permissions.
 _GDEWTF_CONTROLLER_CODES = frozenset({"RND-LJKD", "RND-8VWA"})
 # Stable Telegram account of the RND-8VWA controller. This identity fallback
 # is required for recovery when GDE.WTF hides/omits the public code on a
 # banned profile response. It is safe only after the Telegram identity check.
 _GDEWTF_CONTROLLER_TELEGRAM_IDS = frozenset({"6652898792"})
-# Ordinary linked moderators may use only informational commands.
+# Informational actions without a dedicated permission mapping remain available to linked active moderators.
 _GDEWTF_READONLY_ACTIONS = frozenset({
     "gde", "gdewtf", "профиль", "profile", "who", "кто", "статус", "status", "права",
     "варны", "warns", "поиск", "search", "модеры", "сверка", "модераторы", "mods", "города",
