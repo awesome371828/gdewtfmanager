@@ -2140,9 +2140,14 @@ async def normalize_dot_dk_prefix(handler, event, data):
     # through outer middleware; initialize this before the text-only branch.
     raw = ""
     if isinstance(event, Message) and event.text:
+        # Telegram clients may prepend invisible bidi/isolation marks to copied
+        # or replied command text. They are formatting controls, not command
+        # characters; remove only leading controls before command normalization
+        # so filters such as -смс and moderation aliases still match.
+        command_text = re.sub(r"^[\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]+", "", event.text)
         # aiogram Message is frozen (Pydantic); never assign to event.text.
         # Work on a shallow model copy so ordinary chat messages cannot crash middleware.
-        event = event.model_copy(update={"text": _normalize_natural_moderation_phrase(event.text)})
+        event = event.model_copy(update={"text": _normalize_natural_moderation_phrase(command_text)})
         raw = event.text.strip()
 
         # Commands are enabled uniformly across every topic in every group.
