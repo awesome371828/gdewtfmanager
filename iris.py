@@ -214,7 +214,8 @@ def _gdewtf_stale_read(
 
 async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
                body: dict[str, Any] | None = None,
-               request_timeout: aiohttp.ClientTimeout | None = None) -> dict[str, Any]:
+               request_timeout: aiohttp.ClientTimeout | None = None,
+               skip_cache: bool = False) -> dict[str, Any]:
     if not API_KEY:
         return {"ok": False, "error": "api_key_not_configured"}
     headers = {
@@ -224,7 +225,7 @@ async def _api(method: str, path: str, *, params: dict[str, Any] | None = None,
     }
     global _API_SESSION
     normalized_path = "/" + path.lstrip("/")
-    cache_ttl = _GDEWTF_API_CACHE_TTL.get(normalized_path, 0.0) if method == "GET" else 0.0
+    cache_ttl = _GDEWTF_API_CACHE_TTL.get(normalized_path, 0.0) if method == "GET" and not skip_cache else 0.0
     cache_key = _gdewtf_cache_key(normalized_path, params) if cache_ttl else None
     if cache_key is not None:
         cached = _GDEWTF_API_CACHE.get(cache_key)
@@ -571,7 +572,7 @@ def _gdewtf_public_code(profile: dict[str, Any]) -> str | None:
 _GDEWTF_ACTION_PERMISSIONS: dict[str, str] = {
     "варн": "marks", "warn": "marks", "снятьварн": "marks",
     "снять-варн": "marks", "анварн": "marks", "unwarn": "marks",
-    "снятьварны": "marks", "снять-варны": "marks", "warnclear": "marks",
+    "снятьварны": "marks", "снять-варны": "marks", "warnclear": "marks", "варны": "marks", "warns": "marks",
     "бан": "users", "ban": "users", "разбан": "users",
     "unban": "users", "анбан": "users", "снять": "users",
     "modremove": "users", "поиск": "users", "search": "users",
@@ -1029,6 +1030,7 @@ async def _gdewtf_authorize_locked(user_id: int, action: str, username: str | No
     rnd_response = await _api(
         "GET", "/mod", params={"q": public_code},
         request_timeout=aiohttp.ClientTimeout(total=0.8, connect=0.3, sock_read=0.5),
+        skip_cache=True,
     )
     rnd_profile = rnd_response.get("mod") if rnd_response.get("ok") and isinstance(rnd_response.get("mod"), dict) else None
     if not rnd_profile:
